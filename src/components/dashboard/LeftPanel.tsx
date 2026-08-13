@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import IframeModal from './IframeModal';
 import RunSelectionModal from './RunSelectionModal';
@@ -9,7 +9,7 @@ import { executeRun } from '../../lib/analyzer';
 import { useHospitals } from '../../hooks/useHospitals';
 import { generateAndUploadReport } from '../../lib/reportGenerator';
 import packageJson from '../../../package.json';
-import { supabase } from '../../lib/supabase';
+
 
 const parseQueries = (raw: any): string[] => {
   if (!raw) return [];
@@ -49,6 +49,7 @@ const LeftPanel = () => {
   
   const [isRunModalOpen, setIsRunModalOpen] = useState(false);
   const [modalAction, setModalAction] = useState<'rerun' | 'web' | 'pdf' | null>(null);
+  const modalActionRef = useRef<'rerun' | 'web' | 'pdf' | null>(null);
   const [modalTitle, setModalTitle] = useState('');
   
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
@@ -195,44 +196,19 @@ const LeftPanel = () => {
       return;
     }
     setModalAction(action);
+    modalActionRef.current = action;
     setModalTitle(title);
-
-    try {
-      const { data: latestRun } = await supabase
-        .from('runs')
-        .select('id')
-        .eq('hospital_code', hospitalCode)
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (latestRun) {
-        setActiveRunId(latestRun.id);
-        if (action === 'rerun') {
-          setIsRerunModalOpen(true);
-          return;
-        } else if (action === 'web') {
-          setIsWebVerifModalOpen(true);
-          return;
-        } else if (action === 'pdf') {
-          handleSelectRunFromModal(latestRun.id);
-          return;
-        }
-      }
-    } catch (e) {
-      // fallback
-    }
-
     setIsRunModalOpen(true);
   };
 
   const handleSelectRunFromModal = async (selectedRunId: number) => {
     setActiveRunId(selectedRunId);
-    if (modalAction === 'rerun') {
+    const actionToUse = modalActionRef.current || modalAction;
+    if (actionToUse === 'rerun') {
       setIsRerunModalOpen(true);
-    } else if (modalAction === 'web') {
+    } else if (actionToUse === 'web') {
       setIsWebVerifModalOpen(true);
-    } else if (modalAction === 'pdf') {
+    } else if (actionToUse === 'pdf') {
       if (isRunning) return;
       setIsRunning(true);
       clearLogs();
