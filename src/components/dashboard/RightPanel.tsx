@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
 
 const StatusIcon = ({ status }: { status: 'pending' | 'running' | 'done' | 'error' }) => {

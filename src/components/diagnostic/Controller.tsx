@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Play, RotateCw } from 'lucide-react';
 
 const Controller = () => {

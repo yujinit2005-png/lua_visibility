@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode, useRef } from 'react';
+import { createContext, useContext, useState, useRef } from 'react';
+import type { ReactNode } from 'react';
 
 type StepStatus = 'pending' | 'running' | 'done' | 'error';
 
@@ -78,7 +79,7 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   const appendLog = (log: string) => setLogs(prev => [...prev, log]);
   const clearLogs = () => setLogs([]);
 
-  const [stepStatus, setStepStatusState] = useState<{ [key: string]: StepStatus }>({
+  const [stepStatus, setStepStatusState] = useState<{ init: StepStatus; measurement: StepStatus; scoring: StepStatus; trust: StepStatus; render: StepStatus }>({
     init: 'pending',
     measurement: 'pending',
     scoring: 'pending',

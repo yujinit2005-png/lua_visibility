@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import IframeModal from './IframeModal';
 import RunSelectionModal from './RunSelectionModal';
 import RerunModal from './RerunModal';
 import WebVerificationModal from './WebVerificationModal';
 import HospitalManagementModal from './HospitalManagementModal';
-import { executeRun, executeRerun } from '../../lib/analyzer';
+import { executeRun } from '../../lib/analyzer';
 import { useHospitals } from '../../hooks/useHospitals';
 import { generateAndUploadReport } from '../../lib/reportGenerator';
 import packageJson from '../../../package.json';
+import { supabase } from '../../lib/supabase';
 
 const parseQueries = (raw: any): string[] => {
   if (!raw) return [];
@@ -44,7 +45,7 @@ const LeftPanel = () => {
   } = useDashboard();
 
   const [isIframeOpen, setIsIframeOpen] = useState(false);
-  const [iframeUrl, setIframeUrl] = useState('');
+  const [iframeUrl, _setIframeUrl] = useState('');
   
   const [isRunModalOpen, setIsRunModalOpen] = useState(false);
   const [modalAction, setModalAction] = useState<'rerun' | 'web' | 'pdf' | null>(null);

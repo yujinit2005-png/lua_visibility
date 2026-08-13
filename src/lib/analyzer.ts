@@ -371,7 +371,7 @@ interface RerunOptions extends Omit<RunOptions, 'queries' | 'reps' | 'options' |
 }
 
 export const executeRerun = async (opts: RerunOptions) => {
-  const { hospitalCode, hospitalName, aiTools, apiKeys, appendLog, setStepStatus, targetRunId } = opts;
+  const { hospitalCode, hospitalName, apiKeys, appendLog, setStepStatus, targetRunId } = opts;
   
   appendLog(`[재실행] 진단 기록(#${targetRunId || '최신'})에서 실패한 질문을 검색합니다...`);
   setStepStatus('init', 'running');

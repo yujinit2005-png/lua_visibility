@@ -339,7 +339,7 @@ export interface NaverProviderConfig {
   clientSecret: string;
 }
 
-export const callNaverLocal = async (prompt: string, config: NaverProviderConfig, aliases?: string[]): Promise<ProviderResult> => {
+export const callNaverLocal = async (prompt: string, config: NaverProviderConfig, _aliases?: string[]): Promise<ProviderResult> => {
   // 네이버 지역검색은 자연어(문장) 검색 시 결과가 0건으로 나오는 경우가 많음.
   // 질문 형태의 불용어를 제거하고 명사 위주의 키워드로 변환
   let searchKeyword = prompt

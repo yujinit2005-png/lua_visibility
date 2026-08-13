@@ -74,7 +74,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
 
   // Tab Selection
   const [activeTab, setActiveTab] = useState<'aliases' | 'region_terms' | 'competitors' | 'queries'>('aliases');
-  const [loading, setLoading] = useState(false);
+  const [_loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {

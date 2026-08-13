@@ -1,4 +1,3 @@
-import React from 'react';
 import LeftPanel from '../components/dashboard/LeftPanel';
 import RightPanel from '../components/dashboard/RightPanel';
 import { DashboardProvider } from '../contexts/DashboardContext';

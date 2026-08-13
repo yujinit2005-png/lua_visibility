@@ -114,7 +114,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
   const [isExpandedAll, setIsExpandedAll] = useState(false);
 
   // aliases 로드
-  const [hospitalAliases, setHospitalAliases] = useState<string[]>([]);
+  const [_hospitalAliases, setHospitalAliases] = useState<string[]>([]);
 
   // ── aliases 로드 ───────────────────────────────────────────────────
   const loadAliases = useCallback(async () => {
@@ -557,7 +557,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
                           value={row.web_mentioned ? 'true' : 'false'}
                           onChange={(e) => {
                             const val = e.target.value === 'true';
-                            setRows(prev => prev.map((r, i) => (r.platform === row.platform && r.query === row.query ? { 
+                            setRows(prev => prev.map((r) => (r.platform === row.platform && r.query === row.query ? { 
                               ...r, 
                               web_mentioned: val,
                               memo: getDefaultMemo(r.platform, hospitalName, r.api_mentioned, val)

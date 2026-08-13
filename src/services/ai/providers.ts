@@ -8,7 +8,7 @@ export interface AIProviderConfig {
 }
 
 export class AIProviderService {
-  constructor(private configs: Record<string, AIProviderConfig>) {}
+  constructor(_configs: Record<string, AIProviderConfig>) {}
 
   async callOpenAI(prompt: string): Promise<AIResponse> {
     // Stub for OpenAI API call
