@@ -25,11 +25,40 @@ const RightPanel = () => {
     }
   }, [logs]);
 
+  // 프로그레스 퍼센티지 및 수집 건수 계산
+  let doneCount = 0;
+  if (stepStatus.init === 'done') doneCount++;
+  if (stepStatus.measurement === 'done') doneCount++;
+  if (stepStatus.scoring === 'done') doneCount++;
+  if (stepStatus.trust === 'done') doneCount++;
+  if (stepStatus.render === 'done') doneCount++;
+
+  const completedCalls = logs.filter(l => 
+    l.includes('DB 업데이트 완료') || l.includes('호출 중') || l.includes('성공') || l.includes('실패')
+  ).length;
+
+  let percent = 0;
+  if (stepStatus.render === 'done') {
+    percent = 100;
+  } else if (stepStatus.trust === 'done') {
+    percent = 90;
+  } else if (stepStatus.scoring === 'done') {
+    percent = 75;
+  } else if (stepStatus.measurement === 'done') {
+    percent = 60;
+  } else if (stepStatus.measurement === 'running') {
+    percent = Math.min(58, Math.max(20, 20 + Math.round(completedCalls * 1.5)));
+  } else if (stepStatus.init === 'done') {
+    percent = 15;
+  } else if (isRunning) {
+    percent = 5;
+  }
+
   return (
     <div className="flex-1 bg-[#F7F9FA] h-full flex flex-col p-4 gap-4">
       
       {/* Top: Progress and Status */}
-      <div className="bg-white border border-gray-200 shadow-sm p-4 text-sm font-medium text-slate-800">
+      <div className="bg-white border border-gray-200 shadow-sm p-4 text-sm font-medium text-slate-800 rounded">
         <div className="flex justify-between items-center mb-3">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
             <span className="text-blue-900">📊</span> 실시간 진단 현황 및 로그
@@ -49,7 +78,7 @@ const RightPanel = () => {
             <div className="flex items-center gap-2">
               <StatusIcon status={stepStatus.measurement} />
               <StatusText status={stepStatus.measurement} />
-              <span className="ml-2">2. AI 가시성 측정 (답변 수집)</span>
+              <span className="ml-2">2. AI 가시성 N회 측정 (답변 수집)</span>
             </div>
           </div>
           <div className="flex justify-between items-center text-gray-500">
@@ -63,7 +92,7 @@ const RightPanel = () => {
             <div className="flex items-center gap-2">
               <StatusIcon status={stepStatus.trust} />
               <StatusText status={stepStatus.trust} />
-              <span className="ml-2">4. Trust Signal 기술 점검</span>
+              <span className="ml-2">4. Trust Signal 기술 점검 (GEO 준비도)</span>
             </div>
           </div>
           <div className="flex justify-between items-center text-gray-500">
@@ -76,13 +105,28 @@ const RightPanel = () => {
         </div>
       </div>
 
-      {/* Status indicator */}
-      <div className="text-sm font-medium text-gray-600 px-1">
-        {isRunning ? (
-          <span className="text-orange-500">◆  현재 프로세스가 실행 중입니다...</span>
-        ) : (
-          <span>대기 중</span>
-        )}
+      {/* Progress Bar Section (메인 프로그레스 바) */}
+      <div className="bg-white border border-gray-200 shadow-sm p-3 rounded flex flex-col gap-2">
+        <div className="flex justify-between items-center text-xs font-bold">
+          <span className="flex items-center gap-1.5 text-slate-700">
+            <span className={isRunning ? "text-orange-500 animate-pulse" : "text-green-600"}>
+              {isRunning ? '◆ 진단 프로세스 진행 중...' : percent === 100 ? '🎉 모든 진단 프로세스 완료!' : '◆ 대기 중'}
+            </span>
+          </span>
+          <span className="text-slate-800 font-mono text-sm">{percent}%</span>
+        </div>
+
+        {/* 바 컨테이너 */}
+        <div className="w-full bg-gray-200 rounded-full h-3.5 overflow-hidden p-0.5 border border-gray-300">
+          <div 
+            className={`h-full rounded-full transition-all duration-300 ${
+              percent === 100 
+                ? 'bg-gradient-to-r from-emerald-500 to-green-600' 
+                : 'bg-gradient-to-r from-orange-500 via-amber-500 to-green-500 animate-pulse'
+            }`}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
       </div>
 
       {/* Bottom: Terminal / Console */}

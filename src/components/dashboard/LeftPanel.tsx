@@ -8,6 +8,7 @@ import HospitalManagementModal from './HospitalManagementModal';
 import { executeRun, executeRerun } from '../../lib/analyzer';
 import { useHospitals } from '../../hooks/useHospitals';
 import { generateAndUploadReport } from '../../lib/reportGenerator';
+import packageJson from '../../../package.json';
 
 const parseQueries = (raw: any): string[] => {
   if (!raw) return [];
@@ -120,6 +121,10 @@ const LeftPanel = () => {
       if (!apiKeys.perplexity) { alert("Perplexity API 키가 필요합니다."); return; }
       activeTools.push('perplexity');
     }
+    if (aiTools.naver) {
+      if (!apiKeys.naverId || !apiKeys.naverSecret) { alert("Naver API 키(Client ID & Secret)가 필요합니다."); return; }
+      activeTools.push('naver');
+    }
     if (aiTools.anthropic) {
       if (!apiKeys.anthropic) { alert("Anthropic API 키가 필요합니다."); return; }
       activeTools.push('anthropic');
@@ -149,8 +154,10 @@ const LeftPanel = () => {
       appendLog("1. 설정 로드 및 API 준비 완료.");
       setStepStatus('init', 'done');
       
+      const hospObj = hospitals.find(h => h.hospital_code === hospitalCode);
       await executeRun({
         hospitalCode,
+        hospitalName: hospObj ? hospObj.name : hospitalCode,
         version,
         aiTools: activeTools,
         options,
@@ -181,13 +188,40 @@ const LeftPanel = () => {
     }
   };
 
-  const openRunModal = (action: 'rerun' | 'web' | 'pdf', title: string) => {
+  const openRunModal = async (action: 'rerun' | 'web' | 'pdf', title: string) => {
     if (!hospitalCode) {
       alert("대상 병원을 먼저 선택해 주세요.");
       return;
     }
     setModalAction(action);
     setModalTitle(title);
+
+    try {
+      const { data: latestRun } = await supabase
+        .from('runs')
+        .select('id')
+        .eq('hospital_code', hospitalCode)
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestRun) {
+        setActiveRunId(latestRun.id);
+        if (action === 'rerun') {
+          setIsRerunModalOpen(true);
+          return;
+        } else if (action === 'web') {
+          setIsWebVerifModalOpen(true);
+          return;
+        } else if (action === 'pdf') {
+          handleSelectRunFromModal(latestRun.id);
+          return;
+        }
+      }
+    } catch (e) {
+      // fallback
+    }
+
     setIsRunModalOpen(true);
   };
 
@@ -225,32 +259,28 @@ const LeftPanel = () => {
         title={modalTitle}
         onSelectRun={handleSelectRunFromModal}
       />
-      {activeRunId && (
-        <RerunModal
-          isOpen={isRerunModalOpen}
-          onClose={() => setIsRerunModalOpen(false)}
-          runId={activeRunId}
-          hospitalCode={hospitalCode}
-          hospitalName={hospitals.find(h => h.hospital_code === hospitalCode)?.name || '병원'}
-          onChangeRun={() => {
-            setIsRerunModalOpen(false);
-            openRunModal('rerun', '진단 재실행');
-          }}
-        />
-      )}
-      {activeRunId && (
-        <WebVerificationModal
-          isOpen={isWebVerifModalOpen}
-          onClose={() => setIsWebVerifModalOpen(false)}
-          runId={activeRunId}
-          hospitalCode={hospitalCode}
-          hospitalName={hospitals.find(h => h.hospital_code === hospitalCode)?.name || '병원'}
-          onChangeRun={() => {
-            setIsWebVerifModalOpen(false);
-            openRunModal('web', '웹 UI 실측');
-          }}
-        />
-      )}
+      <RerunModal
+        isOpen={isRerunModalOpen}
+        onClose={() => setIsRerunModalOpen(false)}
+        runId={activeRunId || 0}
+        hospitalCode={hospitalCode}
+        hospitalName={hospitals.find(h => h.hospital_code === hospitalCode)?.name || '병원'}
+        onChangeRun={() => {
+          setIsRerunModalOpen(false);
+          setIsRunModalOpen(true);
+        }}
+      />
+      <WebVerificationModal
+        isOpen={isWebVerifModalOpen}
+        onClose={() => setIsWebVerifModalOpen(false)}
+        runId={activeRunId || 0}
+        hospitalCode={hospitalCode}
+        hospitalName={hospitals.find(h => h.hospital_code === hospitalCode)?.name || '병원'}
+        onChangeRun={() => {
+          setIsWebVerifModalOpen(false);
+          setIsRunModalOpen(true);
+        }}
+      />
       <HospitalManagementModal
         isOpen={isHospMgmtOpen}
         onClose={() => setIsHospMgmtOpen(false)}
@@ -272,7 +302,10 @@ const LeftPanel = () => {
             <div className="w-10 h-10 bg-orange-500 text-white font-bold italic flex items-center justify-center text-xl rounded-sm">
               lCA
             </div>
-            <h1 className="text-xl font-bold text-slate-800">루비스 (LUVIS)</h1>
+            <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              루비스 (LUVIS)
+              <span className="text-sm font-bold text-white bg-orange-500 px-2.5 py-0.5 rounded-full shadow-sm ml-1">v{packageJson.version}</span>
+            </h1>
           </div>
           <span className="text-gray-500 text-sm font-semibold">루아컴퍼니</span>
         </div>
@@ -310,8 +343,12 @@ const LeftPanel = () => {
                 <span>Perplexity</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={aiTools.anthropic} onChange={e => setAiTools({...aiTools, anthropic: e.target.checked})} className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" />
-                <span>Anthropic (Claude)</span>
+                <input type="checkbox" checked={aiTools.naver} onChange={e => setAiTools({...aiTools, naver: e.target.checked})} className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" />
+                <span>Naver API</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-not-allowed opacity-50" title="현재 비활성화됨">
+                <input type="checkbox" checked={false} disabled className="rounded text-gray-400 accent-gray-400 cursor-not-allowed" />
+                <span className="text-gray-400 line-through">Anthropic (Claude)</span>
               </label>
             </div>
           </div>
@@ -383,66 +420,81 @@ const LeftPanel = () => {
             </div>
           </div>
 
-          {/* Input Fields */}
-          <div className="flex flex-col gap-1">
-            <label className="font-bold text-slate-800">병원 홈페이지 URL (Trust Signal 점검용)</label>
-            <input type="text" value={hospitalUrl} onChange={e => setHospitalUrl(e.target.value)} className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full outline-none focus:border-orange-500" />
-          </div>
+          {/* Input Fields (가로 배열) */}
+          <div className="flex gap-4">
+            <div className="flex-1 flex flex-col gap-1">
+              <label className="font-bold text-slate-800 text-sm">병원 홈페이지 URL <span className="font-normal text-gray-500 text-xs">(Trust점검용)</span></label>
+              <input type="text" value={hospitalUrl} onChange={e => setHospitalUrl(e.target.value)} className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full outline-none focus:border-orange-500" />
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="font-bold text-slate-800">저장할 PDF 이름</label>
-            <input type="text" value={pdfName} onChange={e => setPdfName(e.target.value)} className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full outline-none focus:border-orange-500" />
-          </div>
-
-          {/* API 키 */}
-          <div>
-            <h3 className="font-bold text-slate-800 mb-2 border-b border-gray-200 pb-1">API 키 (실측 시 필요)</h3>
-            <div className="space-y-3 mt-3">
-              <div className="flex items-center">
-                <span className="w-32 text-gray-500">OpenAI (ChatGPT)</span>
-                <input type="password" value={apiKeys.openai} onChange={e => setApiKeys({...apiKeys, openai: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-1 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
-              </div>
-              <div className="flex items-center">
-                <span className="w-32 text-gray-500">Google Gemini</span>
-                <input type="password" value={apiKeys.gemini} onChange={e => setApiKeys({...apiKeys, gemini: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-1 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
-              </div>
-              <div className="flex items-center">
-                <span className="w-32 text-gray-500">Perplexity</span>
-                <input type="password" value={apiKeys.perplexity} onChange={e => setApiKeys({...apiKeys, perplexity: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-1 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
-              </div>
-              <div className="flex items-center">
-                <span className="w-32 text-gray-500">Anthropic (Claude)</span>
-                <input type="password" value={apiKeys.anthropic} onChange={e => setApiKeys({...apiKeys, anthropic: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-1 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
-              </div>
+            <div className="flex-1 flex flex-col gap-1">
+              <label className="font-bold text-slate-800 text-sm">저장할 PDF 이름</label>
+              <input type="text" value={pdfName} onChange={e => setPdfName(e.target.value)} className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full outline-none focus:border-orange-500" />
             </div>
           </div>
 
           {/* Action Buttons */}
           <div className="flex flex-col gap-2.5 mt-2">
+            {/* 1행: 진단실행 + 영업용 PDF + 측정중단 */}
             <div className="flex gap-2">
-              <button onClick={handleRunDiagnosis} disabled={isRunning} className={`flex-1 text-white font-bold py-2.5 px-4 rounded shadow-sm transition-colors flex items-center justify-center gap-2 text-[15px] ${isRunning ? 'bg-gray-400' : 'bg-[#EB5B25] hover:bg-[#D64E1C]'}`}>
-                <span>🚀</span> {isRunning ? '진단 수집 중...' : 'AI 가시성 진단 실행'}
+              <button onClick={handleRunDiagnosis} disabled={isRunning} className={`flex-[1.5] text-white font-bold py-2.5 px-2 rounded shadow-sm transition-colors flex items-center justify-center gap-1.5 text-[14px] ${isRunning ? 'bg-gray-400' : 'bg-[#EB5B25] hover:bg-[#D64E1C]'}`}>
+                <span>🚀</span> {isRunning ? '진단 중...' : 'AI 가시성 진단 실행'}
               </button>
-              <button onClick={handleStop} disabled={!isRunning} className={`text-white font-bold py-2.5 px-8 rounded shadow-sm transition-colors text-[13px] ${!isRunning ? 'bg-gray-300' : 'bg-red-500 hover:bg-red-600'}`}>
+              
+              <button onClick={() => openRunModal('pdf', '영업용 PDF 생성')} disabled={isRunning} className="flex-[1.2] bg-[#248EAA] hover:bg-[#1C738A] text-white font-bold py-2.5 px-2 rounded shadow-sm transition-colors flex items-center justify-center gap-1.5 text-[13px]">
+                <span>📄</span> 영업용 진단 PDF 생성
+              </button>
+              
+              <button onClick={handleStop} disabled={!isRunning} className={`text-white font-bold py-2.5 px-3 rounded shadow-sm transition-colors text-[13px] ${!isRunning ? 'bg-gray-300' : 'bg-red-500 hover:bg-red-600'}`}>
                 측정 중단
               </button>
             </div>
             
-            <button onClick={() => openRunModal('rerun', '진단 재실행')} disabled={isRunning} className="w-full bg-[#8B3DFF] hover:bg-[#722CEB] text-white font-bold py-2 px-4 rounded shadow-sm transition-colors flex items-center justify-center gap-2 text-[13px]">
-              <span>🔄</span> AI 가시성 진단 재실행 (실패 질문 보완)
-            </button>
-            
-            <button onClick={() => openRunModal('web', '웹 UI 실측')} disabled={isRunning} className="w-full bg-[#189B72] hover:bg-[#137A5A] text-white font-bold py-2 px-4 rounded shadow-sm transition-colors flex items-center justify-center gap-2 text-[13px]">
-              <span>🌐</span> 웹 UI 실측 및 교차 비교
-            </button>
-            
-            <button onClick={() => openRunModal('pdf', '영업용 PDF 생성')} disabled={isRunning} className="w-full bg-[#248EAA] hover:bg-[#1C738A] text-white font-bold py-2 px-4 rounded shadow-sm transition-colors flex items-center justify-center gap-2 text-[13px]">
-              <span>📄</span> 영업용 진단 PDF 생성
-            </button>
+            {/* 2행: 진단 재실행 + 웹 교차비교 */}
+            <div className="flex gap-2">
+              <button onClick={() => openRunModal('rerun', '진단 재실행')} disabled={isRunning} className="flex-1 bg-[#8B3DFF] hover:bg-[#722CEB] text-white font-bold py-2 px-2 rounded shadow-sm transition-colors flex items-center justify-center gap-1.5 text-[13px]">
+                <span>🔄</span> AI 가시성 진단 재실행
+              </button>
+              
+              <button onClick={() => openRunModal('web', '웹 UI 실측')} disabled={isRunning} className="flex-1 bg-[#189B72] hover:bg-[#137A5A] text-white font-bold py-2 px-2 rounded shadow-sm transition-colors flex items-center justify-center gap-1.5 text-[13px]">
+                <span>🌐</span> 웹 UI 실측 및 교차 비교
+              </button>
+            </div>
             
             <button onClick={() => setIsHospMgmtOpen(true)} disabled={isRunning} className="w-full bg-[#1A365D] hover:bg-[#122642] text-white font-bold py-2 px-4 rounded shadow-sm transition-colors flex items-center justify-center gap-2 text-[13px]">
               <span>⚙️</span> 병원 정보 & 질문세트 관리
             </button>
+          </div>
+
+          {/* API 키 (하단 배치) */}
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <h3 className="font-bold text-slate-800 mb-2">API 키 (실측 시 필요)</h3>
+            <div className="space-y-2.5">
+              <div className="flex items-center">
+                <span className="w-32 text-gray-500 text-xs font-semibold">OpenAI (ChatGPT)</span>
+                <input type="password" value={apiKeys.openai} onChange={e => setApiKeys({...apiKeys, openai: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-0.5 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
+              </div>
+              <div className="flex items-center">
+                <span className="w-32 text-gray-500 text-xs font-semibold">Google Gemini</span>
+                <input type="password" value={apiKeys.gemini} onChange={e => setApiKeys({...apiKeys, gemini: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-0.5 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
+              </div>
+              <div className="flex items-center">
+                <span className="w-32 text-gray-500 text-xs font-semibold">Perplexity</span>
+                <input type="password" value={apiKeys.perplexity} onChange={e => setApiKeys({...apiKeys, perplexity: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-0.5 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
+              </div>
+              <div className="flex items-center">
+                <span className="w-32 text-gray-500 text-xs font-semibold">Naver Client ID</span>
+                <input type="password" value={apiKeys.naverId} onChange={e => setApiKeys({...apiKeys, naverId: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-0.5 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
+              </div>
+              <div className="flex items-center">
+                <span className="w-32 text-gray-500 text-xs font-semibold">Naver Secret</span>
+                <input type="password" value={apiKeys.naverSecret} onChange={e => setApiKeys({...apiKeys, naverSecret: e.target.value})} className="flex-1 border-b border-gray-300 px-2 py-0.5 text-sm bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
+              </div>
+              <div className="flex items-center opacity-50">
+                <span className="w-32 text-gray-400 text-xs font-semibold">Anthropic (Claude)</span>
+                <input type="password" disabled value={apiKeys.anthropic} placeholder="(비활성화됨)" className="flex-1 border-b border-gray-300 px-2 py-0.5 text-sm bg-transparent outline-none border-dotted tracking-[0.2em] cursor-not-allowed" />
+              </div>
+            </div>
           </div>
         </div>
       </div>

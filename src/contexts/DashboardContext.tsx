@@ -5,7 +5,7 @@ type StepStatus = 'pending' | 'running' | 'done' | 'error';
 export interface DashboardState {
   diagnosticType: string;
   setDiagnosticType: (val: string) => void;
-  aiTools: { openai: boolean; gemini: boolean; perplexity: boolean; anthropic: boolean };
+  aiTools: { openai: boolean; gemini: boolean; perplexity: boolean; naver: boolean; anthropic: boolean };
   setAiTools: (val: any) => void;
   options: { aeo: boolean; geo: boolean; competitor: boolean; trust: boolean; glossary: boolean };
   setOptions: (val: any) => void;
@@ -21,7 +21,7 @@ export interface DashboardState {
   setHospitalUrl: (val: string) => void;
   pdfName: string;
   setPdfName: (val: string) => void;
-  apiKeys: { openai: string; gemini: string; perplexity: string; anthropic: string };
+  apiKeys: { openai: string; gemini: string; perplexity: string; naverId: string; naverSecret: string; anthropic: string };
   setApiKeys: (val: any) => void;
   
   // Right Panel state
@@ -53,7 +53,7 @@ const DashboardContext = createContext<DashboardState | undefined>(undefined);
 
 export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   const [diagnosticType, setDiagnosticType] = useState('free');
-  const [aiTools, setAiTools] = useState({ openai: true, gemini: true, perplexity: true, anthropic: false });
+  const [aiTools, setAiTools] = useState({ openai: true, gemini: true, perplexity: true, naver: true, anthropic: false });
   const [options, setOptions] = useState({ aeo: true,    geo: true,
     competitor: true,
     trust: true,
@@ -69,6 +69,8 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
     openai: import.meta.env.OPENAI_API_KEY || '', 
     gemini: import.meta.env.GEMINI_API_KEY || '', 
     perplexity: import.meta.env.PERPLEXITY_API_KEY || '', 
+    naverId: import.meta.env.NAVER_CLIENT_ID || 'i8ciwrvzln',
+    naverSecret: import.meta.env.NAVER_CLIENT_SECRET || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x',
     anthropic: import.meta.env.ANTHROPIC_API_KEY || '' 
   });
 
