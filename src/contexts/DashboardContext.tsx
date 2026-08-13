@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useRef } from 'react';
+import { createContext, useContext, useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { supabase } from '../lib/supabase';
 
 type StepStatus = 'pending' | 'running' | 'done' | 'error';
 
@@ -67,13 +68,41 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   const [hospitalUrl, setHospitalUrl] = useState('');
   const [pdfName, setPdfName] = useState('');
   const [apiKeys, setApiKeys] = useState({ 
-    openai: import.meta.env.OPENAI_API_KEY || '', 
-    gemini: import.meta.env.GEMINI_API_KEY || '', 
-    perplexity: import.meta.env.PERPLEXITY_API_KEY || '', 
-    naverId: import.meta.env.NAVER_CLIENT_ID || 'i8ciwrvzln',
-    naverSecret: import.meta.env.NAVER_CLIENT_SECRET || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x',
-    anthropic: import.meta.env.ANTHROPIC_API_KEY || '' 
+    openai: import.meta.env.OPENAI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY || '', 
+    gemini: import.meta.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '', 
+    perplexity: import.meta.env.PERPLEXITY_API_KEY || import.meta.env.VITE_PERPLEXITY_API_KEY || '', 
+    naverId: import.meta.env.NAVER_CLIENT_ID || import.meta.env.VITE_NCP_APIGW_API_KEY_ID || 'i8ciwrvzln',
+    naverSecret: import.meta.env.NAVER_CLIENT_SECRET || import.meta.env.VITE_NCP_APIGW_API_KEY || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x',
+    anthropic: import.meta.env.ANTHROPIC_API_KEY || import.meta.env.VITE_ANTHROPIC_API_KEY || '' 
   });
+
+  useEffect(() => {
+    const loadApiKeysFromSupabase = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('system_config')
+          .select('value')
+          .eq('key', 'api_keys')
+          .maybeSingle();
+        
+        if (!error && data && data.value) {
+          const remoteKeys = data.value as typeof apiKeys;
+          setApiKeys(prev => ({
+            ...prev,
+            openai: remoteKeys.openai || prev.openai,
+            gemini: remoteKeys.gemini || prev.gemini,
+            perplexity: remoteKeys.perplexity || prev.perplexity,
+            naverId: remoteKeys.naverId || prev.naverId,
+            naverSecret: remoteKeys.naverSecret || prev.naverSecret,
+            anthropic: remoteKeys.anthropic || prev.anthropic
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to load API keys from Supabase:', err);
+      }
+    };
+    loadApiKeysFromSupabase();
+  }, []);
 
   const [logs, setLogs] = useState<string[]>([]);
   const appendLog = (log: string) => setLogs(prev => [...prev, log]);
