@@ -284,7 +284,79 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
 
         <div className="p-5 space-y-4 flex-1 text-slate-800 text-sm font-medium">
           
-          {/* 진단 유형 */}
+          {/* [1순위 최상단] 대상 병원 및 질문 세트 설정 카드 (시각적 강조) */}
+          <div className="bg-gradient-to-br from-amber-50/80 via-orange-50/50 to-white p-3.5 rounded-2xl border-2 border-orange-300/80 shadow-md space-y-3">
+            <div className="flex items-center justify-between border-b border-orange-200/60 pb-2">
+              <h3 className="font-black text-slate-900 text-xs flex items-center gap-1.5">
+                <span className="text-sm">🏥</span> 대상 병원 & 진단 질문 세트
+              </h3>
+              <span className="text-[10px] font-extrabold bg-orange-600 text-white px-2 py-0.5 rounded-full shadow-sm">
+                핵심 타겟
+              </span>
+            </div>
+
+            {/* 대상 병원 & 질문 세트 선택 (한눈에 보이도록 강조) */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-extrabold text-orange-950 text-xs flex items-center gap-1">
+                  <span>🏢</span> 대상 병원 선택
+                </label>
+                <select 
+                  value={hospitalCode} 
+                  onChange={e => setHospitalCode(e.target.value)} 
+                  className="border-2 border-orange-400/90 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 w-full bg-white shadow-sm outline-none focus:ring-2 focus:ring-orange-500 transition-all hover:border-orange-500 cursor-pointer"
+                >
+                  {hospitals.map(h => (
+                    <option key={h.hospital_code} value={h.hospital_code}>
+                      [{h.hospital_code}] {h.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-extrabold text-amber-950 text-xs flex items-center gap-1">
+                  <span>📝</span> 질문 세트 버전
+                </label>
+                <select 
+                  value={version} 
+                  onChange={e => setVersion(e.target.value)} 
+                  className="border-2 border-amber-400/90 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 w-full bg-white shadow-sm outline-none focus:ring-2 focus:ring-amber-500 transition-all hover:border-amber-500 cursor-pointer"
+                >
+                  {versions.map(v => (
+                    <option key={v.version} value={v.version}>
+                      {v.version} {v.is_active === 1 ? '(활성)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* 병원 URL & 저장할 PDF 명 */}
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <div className="flex flex-col gap-1">
+                <label className="font-bold text-slate-700 text-[11px]">병원 URL</label>
+                <input 
+                  type="text" 
+                  value={hospitalUrl} 
+                  onChange={e => setHospitalUrl(e.target.value)} 
+                  className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs w-full bg-white outline-none focus:border-orange-500 font-medium" 
+                  placeholder="https://" 
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="font-bold text-slate-700 text-[11px]">저장할 PDF 명</label>
+                <input 
+                  type="text" 
+                  value={pdfName} 
+                  onChange={e => setPdfName(e.target.value)} 
+                  className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs w-full bg-white outline-none focus:border-orange-500 font-medium" 
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* [2순위] 진단 유형 */}
           <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-200/80">
             <h3 className="font-bold text-slate-800 text-xs mb-2 flex items-center gap-1.5">
               <span>📌</span> 진단 유형
@@ -372,46 +444,6 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                 <input type="checkbox" checked={options.glossary} onChange={e => setOptions({...options, glossary: e.target.checked})} className="rounded text-orange-500 accent-orange-500" />
                 <span>용어 설명</span>
               </label>
-            </div>
-          </div>
-
-          {/* 대상 병원 & 질문 세트 선택 (가로 배열) */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="flex flex-col gap-1">
-              <label className="font-bold text-slate-800 text-xs flex items-center gap-1">
-                <span>🏥</span> 대상 병원 선택
-              </label>
-              <select value={hospitalCode} onChange={e => setHospitalCode(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold w-full bg-white outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500">
-                {hospitals.map(h => (
-                  <option key={h.hospital_code} value={h.hospital_code}>
-                    [{h.hospital_code}] {h.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="font-bold text-slate-800 text-xs flex items-center gap-1">
-                <span>📝</span> 질문 세트 버전
-              </label>
-              <select value={version} onChange={e => setVersion(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold w-full bg-white outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500">
-                {versions.map(v => (
-                  <option key={v.version} value={v.version}>
-                    {v.version} {v.is_active === 1 ? '(활성)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* URL & PDF 이름 */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="flex flex-col gap-1">
-              <label className="font-bold text-slate-700 text-xs">병원 URL</label>
-              <input type="text" value={hospitalUrl} onChange={e => setHospitalUrl(e.target.value)} className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs w-full outline-none focus:border-orange-500" placeholder="https://" />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="font-bold text-slate-700 text-xs">저장할 PDF 명</label>
-              <input type="text" value={pdfName} onChange={e => setPdfName(e.target.value)} className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs w-full outline-none focus:border-orange-500" />
             </div>
           </div>
 
