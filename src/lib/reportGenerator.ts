@@ -806,50 +806,59 @@ ${modelStats.map(m => `- **${m.name}**: 언급률 ${pct(m.mention_rate)} (추천
 - **Trust Signal 점수**: 85/100점 (양호)
 `;
 
-  // Sequence & File Naming
-  const safeFolder = targetFolder.trim().replace(/\s+/g, '_');
-  const cleanHospitalName = (hospitalName || '병원').trim().replace(/[\/\\\:\*\?\"<>\#\%]/g, '_');
+  // ── Sequence & File Naming (규칙: runid + 병원명칭 + yyyymmdd + seq) ──────────────────
+  const safeFolder = targetFolder.trim().replace(/\s+/g, '_'); // 'Report' | 'Remake_Report'
+  const cleanHospitalName = (hospitalName || '병원').trim().replace(/[\/\\\:\*\?\"<>\#\%\|\s]/g, '');
   const now = new Date();
   const dateYmd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const runIdStr = String(runId || 1).padStart(3, '0');
 
+  // 해당 폴더의 기존 파일 목록을 조회하여 파일 순번(seq) 결정
   const { data: existingFiles } = await supabase.storage.from('lua_visibility_file').list(safeFolder);
   let nextSeq = 1;
-  if (existingFiles) {
-    const seqs = existingFiles.map(f => parseInt(f.name.substring(0, 3))).filter(n => !isNaN(n));
-    if (seqs.length > 0) nextSeq = Math.max(...seqs) + 1;
-  }
-  const seqStr = String(nextSeq).padStart(3, '0');
-  const filename = `${seqStr}_${cleanHospitalName}_진단_${dateYmd}`;
-  const safeCode = (hospitalCode || 'HOSPITAL').replace(/[^\w\d_]/g, '');
+  if (existingFiles && existingFiles.length > 0) {
+    const prefixMatch = `${runIdStr}_${cleanHospitalName}_${dateYmd}_`;
+    const matchingSeqs = existingFiles
+      .filter(f => f.name.startsWith(prefixMatch))
+      .map(f => {
+        const parts = f.name.replace(/\.[^/.]+$/, '').split('_');
+        const lastPart = parts[parts.length - 1];
+        return parseInt(lastPart, 10);
+      })
+      .filter(n => !isNaN(n));
 
-  appendLog(`[리포트 업로드] 파일명: ${filename}`);
+    if (matchingSeqs.length > 0) {
+      nextSeq = Math.max(...matchingSeqs) + 1;
+    }
+  }
+
+  const seqStr = String(nextSeq).padStart(2, '0');
+  const baseFilename = `${runIdStr}_${cleanHospitalName}_${dateYmd}_${seqStr}`;
+
+  appendLog(`[리포트 업로드] 파일명: ${baseFilename}`);
 
   const uploadFile = async (folder: string, name: string, ext: string, content: string | Blob, contentType: string) => {
     const cleanFolder = folder.trim().replace(/\s+/g, '_');
-    const displayPath = `${cleanFolder}/${name}.${ext}`;
-    const s3Path1 = `${cleanFolder}/${seqStr}_${safeCode}_${dateYmd}_${ext === 'json' ? 'audit' : 'report'}.${ext}`;
-    const s3Path2 = `${cleanFolder}/${encodeURIComponent(name)}.${ext}`;
+    const storagePath = `${cleanFolder}/${name}.${ext}`;
 
-    let { error } = await supabase.storage
+    const { error } = await supabase.storage
       .from('lua_visibility_file')
-      .upload(s3Path1, content, { contentType, upsert: true });
+      .upload(storagePath, content, { contentType, upsert: true });
 
     if (error) {
-      const retry = await supabase.storage
-        .from('lua_visibility_file')
-        .upload(s3Path2, content, { contentType, upsert: true });
-      error = retry.error;
+      appendLog(`❌ 업로드 실패: ${storagePath} - ${error.message}`);
+    } else {
+      appendLog(`✅ 업로드 완료: ${storagePath}`);
     }
-
-    if (error) appendLog(`❌ 업로드 실패: ${displayPath} - ${error.message}`);
-    else appendLog(`✅ 업로드 완료: ${displayPath}`);
   };
 
-  await uploadFile(safeFolder, filename, 'html', fullHtmlContent, 'text/html');
-  await uploadFile(safeFolder, filename, 'md', mdContent, 'text/markdown');
+  // 1. Report 또는 Remake_Report 폴더에 HTML 및 MD 업로드
+  await uploadFile(safeFolder, baseFilename, 'html', fullHtmlContent, 'text/html; charset=utf-8');
+  await uploadFile(safeFolder, baseFilename, 'md', mdContent, 'text/markdown; charset=utf-8');
 
+  // 2. Audit 폴더에 JSON 데이터 업로드 (동일한 runid + 병원명칭 + yyyymmdd + seq 규칙)
   const auditContent = JSON.stringify({ run, answers, modelStats, oppItems }, null, 2);
-  await uploadFile('Audit', `${filename}_audit`, 'json', auditContent, 'application/json');
+  await uploadFile('Audit', baseFilename, 'json', auditContent, 'application/json; charset=utf-8');
 
   appendLog(`[리포트 생성] 5페이지 고품질 PDF 렌더링 시작...`);
 
