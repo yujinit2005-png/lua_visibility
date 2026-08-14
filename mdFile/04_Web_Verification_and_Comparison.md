@@ -17,6 +17,11 @@ API를 통해 수집된 답변과 실제 사용자가 웹 브라우저에서 검
 - **`API검색결과 / 메모` 컬럼 너비 1.5배 확장 (`w-96 min-w-[380px]`)**:
   - 긴 텍스트와 메모를 시원하게 열람할 수 있도록 테이블 컬럼 폭을 대폭 확장.
 
+### 3. Gemini / Claude 웹 UI 질문 자동 입력 및 전송 로직 (`api_server.py`)
+- URL 파라미터로 쿼리 전달이 지원되지 않는 플랫폼(Gemini, Claude)의 경우:
+  - Playwright가 페이지 로드 후 `div[contenteditable="true"]`, `rich-textarea`, `div[role="textbox"]` 등 입력창을 자동 감지
+  - 질문 텍스트 타이핑(`keyboard.type`) 후 Enter 전송 및 전송 버튼 클릭을 자동으로 수행하여 정상적인 AI 답변 수집 지원.
+
 ---
 
 ## 🖍️ 병원 고유 별칭 정밀 하이라이트 (Highlighting)
