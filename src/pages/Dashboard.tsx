@@ -6,6 +6,8 @@ import AdminSettingsModal from '../components/common/AdminSettingsModal';
 import HospitalManagementModal from '../components/dashboard/HospitalManagementModal';
 import RerunModal from '../components/dashboard/RerunModal';
 import WebVerificationModal from '../components/dashboard/WebVerificationModal';
+import StorageFileManagerModal from '../components/dashboard/StorageFileManagerModal';
+import TrendAnalysisModal from '../components/dashboard/TrendAnalysisModal';
 import { DashboardProvider, useDashboard } from '../contexts/DashboardContext';
 import { useHospitals } from '../hooks/useHospitals';
 
@@ -17,6 +19,8 @@ const DashboardContent = () => {
   const [isHospMgmtOpen, setIsHospMgmtOpen] = useState(false);
   const [isRerunOpen, setIsRerunOpen] = useState(false);
   const [isWebVerifOpen, setIsWebVerifOpen] = useState(false);
+  const [isStorageManagerOpen, setIsStorageManagerOpen] = useState(false);
+  const [isTrendAnalysisOpen, setIsTrendAnalysisOpen] = useState(false);
 
   const currentHosp = hospitals.find(h => h.hospital_code === hospitalCode);
   const hospitalName = currentHosp ? currentHosp.name : (hospitalCode || '병원');
@@ -34,6 +38,11 @@ const DashboardContent = () => {
         onOpenWebVerif={() => {
           if (!hospitalCode) return alert("대상 병원을 먼저 선택해 주세요.");
           setIsWebVerifOpen(true);
+        }}
+        onOpenStorageManager={() => setIsStorageManagerOpen(true)}
+        onOpenTrendAnalysis={() => {
+          if (!hospitalCode) return alert("대상 병원을 먼저 선택해 주세요.");
+          setIsTrendAnalysisOpen(true);
         }}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -75,6 +84,21 @@ const DashboardContent = () => {
       <WebVerificationModal
         isOpen={isWebVerifOpen}
         onClose={() => setIsWebVerifOpen(false)}
+        hospitalCode={hospitalCode}
+        hospitalName={hospitalName}
+      />
+
+      {/* [신규] 스토리지 파일 보관함 모달 */}
+      <StorageFileManagerModal
+        isOpen={isStorageManagerOpen}
+        onClose={() => setIsStorageManagerOpen(false)}
+        hospitalName={hospitalName}
+      />
+
+      {/* [신규] 다중 회차 추이 분석 대시보드 모달 */}
+      <TrendAnalysisModal
+        isOpen={isTrendAnalysisOpen}
+        onClose={() => setIsTrendAnalysisOpen(false)}
         hospitalCode={hospitalCode}
         hospitalName={hospitalName}
       />

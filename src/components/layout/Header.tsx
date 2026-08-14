@@ -1,12 +1,14 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Settings, LogOut, Database, RefreshCw, Globe, Shield } from 'lucide-react';
+import { Settings, LogOut, Database, RefreshCw, Globe, Shield, HardDrive, TrendingUp } from 'lucide-react';
 import packageJson from '../../../package.json';
 
 interface HeaderProps {
   onOpenHospitalMgmt: () => void;
   onOpenRerun: () => void;
   onOpenWebVerif: () => void;
+  onOpenStorageManager: () => void;
+  onOpenTrendAnalysis: () => void;
   onOpenSettings: () => void;
 }
 
@@ -14,6 +16,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenHospitalMgmt,
   onOpenRerun,
   onOpenWebVerif,
+  onOpenStorageManager,
+  onOpenTrendAnalysis,
   onOpenSettings,
 }) => {
   const { user, logout } = useAuth();
@@ -40,7 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Center/Right: Navigation Menu Buttons */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-2 sm:gap-2.5">
         
         {/* 1. 병원정보 질문세트관리 */}
         <button
@@ -72,10 +76,30 @@ export const Header: React.FC<HeaderProps> = ({
           <span>웹 UI 실측 및 교차비교</span>
         </button>
 
-        {/* 구분선 */}
-        <div className="h-5 w-px bg-slate-700 mx-1" />
+        {/* 4. [신규] 스토리지 파일 보관함 */}
+        <button
+          onClick={onOpenStorageManager}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0284C7]/30 hover:bg-[#0284C7]/60 text-sky-200 border border-sky-500/40 shadow-sm transition-all hover:border-sky-400 active:scale-95"
+          title="Supabase 스토리지(Report, Remake_Report, Audit) 파일 조회 및 다운로드"
+        >
+          <HardDrive size={14} className="text-sky-300" />
+          <span>스토리지 파일함</span>
+        </button>
 
-        {/* 4. 설정 (관리자 비밀번호 변경 등) */}
+        {/* 5. [신규] 다중 회차 추이 분석 대시보드 */}
+        <button
+          onClick={onOpenTrendAnalysis}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#4338CA]/40 hover:bg-[#4338CA]/70 text-indigo-200 border border-indigo-500/40 shadow-sm transition-all hover:border-indigo-400 active:scale-95"
+          title="여러 진단 회차별 4대 지표, AI 채널별 언급률 및 질문별 추이 비교 대시보드"
+        >
+          <TrendingUp size={14} className="text-indigo-300" />
+          <span>다중 회차 추이 분석</span>
+        </button>
+
+        {/* 구분선 */}
+        <div className="h-5 w-px bg-slate-700 mx-0.5" />
+
+        {/* 6. 설정 (관리자 비밀번호 변경 등) */}
         <button
           onClick={onOpenSettings}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all hover:text-white"
