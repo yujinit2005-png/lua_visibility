@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useHospitals } from '../../hooks/useHospitals';
 import { 
   Folder, 
   FileText, 
@@ -45,6 +46,7 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
   onClose,
   hospitalName = '',
 }) => {
+  const { hospitals } = useHospitals();
   const [selectedFolder, setSelectedFolder] = useState<string>('ALL');
   const [files, setFiles] = useState<StorageFileInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -121,10 +123,22 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
 
   if (!isOpen) return null;
 
+  // 병원 코드 -> 한글 병원명 치환 헬퍼 (예: 045_HOSP_001_20260814_01.html -> 045_청주필한방병원_20260814_01.html)
+  const getDisplayName = useCallback((rawName: string) => {
+    let result = rawName;
+    hospitals.forEach(h => {
+      if (h.hospital_code && h.name) {
+        result = result.replace(new RegExp(h.hospital_code, 'g'), h.name);
+      }
+    });
+    return result;
+  }, [hospitals]);
+
   // 단일 파일 다운로드
   const handleDownloadFile = async (file: StorageFileInfo) => {
+    const downloadName = getDisplayName(file.name);
     try {
-      showToast('success', `📥 '${file.name}' 다운로드 준비 중...`);
+      showToast('success', `📥 '${downloadName}' 다운로드 준비 중...`);
       const { data, error } = await supabase.storage
         .from('lua_visibility_file')
         .download(file.fullPath);
@@ -134,12 +148,12 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
       const url = URL.createObjectURL(data);
       const a = document.createElement('a');
       a.href = url;
-      a.download = file.name;
+      a.download = downloadName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      showToast('success', `✅ '${file.name}' 다운로드가 완료되었습니다.`);
+      showToast('success', `✅ '${downloadName}' 다운로드가 완료되었습니다.`);
     } catch (e: any) {
       showToast('error', `❌ 다운로드 실패: ${e.message}`);
     }
@@ -415,7 +429,7 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
                           <td className="py-2 px-3 font-mono font-semibold text-slate-900 break-all">
                             <div className="flex items-center gap-1.5">
                               {getFileIcon(file.extension)}
-                              <span>{file.name}</span>
+                              <span>{getDisplayName(file.name)}</span>
                             </div>
                           </td>
                           <td className="py-2 px-3 text-center">

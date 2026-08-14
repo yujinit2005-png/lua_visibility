@@ -806,9 +806,9 @@ ${modelStats.map(m => `- **${m.name}**: 언급률 ${pct(m.mention_rate)} (추천
 - **Trust Signal 점수**: 85/100점 (양호)
 `;
 
-  // ── Sequence & File Naming (규칙: runid + 병원명칭 + yyyymmdd + seq) ──────────────────
+  // ── Sequence & File Naming (Supabase Storage S3 Key 규칙 준수: runid_safeCode_yyyymmdd_seq) ──
   const safeFolder = targetFolder.trim().replace(/\s+/g, '_'); // 'Report' | 'Remake_Report'
-  const cleanHospitalName = (hospitalName || '병원').trim().replace(/[\/\\\:\*\?\"<>\#\%\|\s]/g, '');
+  const safeCode = (hospitalCode || 'HOSP_001').replace(/[^\w\d_]/g, '');
   const now = new Date();
   const dateYmd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
   const runIdStr = String(runId || 1).padStart(3, '0');
@@ -817,7 +817,7 @@ ${modelStats.map(m => `- **${m.name}**: 언급률 ${pct(m.mention_rate)} (추천
   const { data: existingFiles } = await supabase.storage.from('lua_visibility_file').list(safeFolder);
   let nextSeq = 1;
   if (existingFiles && existingFiles.length > 0) {
-    const prefixMatch = `${runIdStr}_${cleanHospitalName}_${dateYmd}_`;
+    const prefixMatch = `${runIdStr}_${safeCode}_${dateYmd}_`;
     const matchingSeqs = existingFiles
       .filter(f => f.name.startsWith(prefixMatch))
       .map(f => {
@@ -833,7 +833,7 @@ ${modelStats.map(m => `- **${m.name}**: 언급률 ${pct(m.mention_rate)} (추천
   }
 
   const seqStr = String(nextSeq).padStart(2, '0');
-  const baseFilename = `${runIdStr}_${cleanHospitalName}_${dateYmd}_${seqStr}`;
+  const baseFilename = `${runIdStr}_${safeCode}_${dateYmd}_${seqStr}`;
 
   appendLog(`[리포트 업로드] 파일명: ${baseFilename}`);
 
@@ -856,7 +856,7 @@ ${modelStats.map(m => `- **${m.name}**: 언급률 ${pct(m.mention_rate)} (추천
   await uploadFile(safeFolder, baseFilename, 'html', fullHtmlContent, 'text/html; charset=utf-8');
   await uploadFile(safeFolder, baseFilename, 'md', mdContent, 'text/markdown; charset=utf-8');
 
-  // 2. Audit 폴더에 JSON 데이터 업로드 (동일한 runid + 병원명칭 + yyyymmdd + seq 규칙)
+  // 2. Audit 폴더에 JSON 데이터 업로드
   const auditContent = JSON.stringify({ run, answers, modelStats, oppItems }, null, 2);
   await uploadFile('Audit', baseFilename, 'json', auditContent, 'application/json; charset=utf-8');
 
