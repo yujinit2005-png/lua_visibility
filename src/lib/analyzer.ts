@@ -142,13 +142,20 @@ export const executeRun = async (opts: RunOptions) => {
         started_at: new Date().toISOString(),
         status: 'RUNNING',
         repetitions: reps,
-        total_tasks: totalTasksCount
+        total_tasks: totalTasksCount,
+        temperature: 0.1,
+        device: 'pc',
+        login_state: 'logged_out',
       })
       .select('id')
       .single();
     
-    if (error) throw error;
-    runId = data.id;
+    if (error) {
+      console.error('Run insert error:', error);
+      appendLog(`DB Error: Failed to create run (${error.message})`);
+    } else {
+      runId = data.id;
+    }
   } catch (err: any) {
     appendLog(`DB Error: Failed to create run (${err.message})`);
   }
@@ -219,7 +226,6 @@ export const executeRun = async (opts: RunOptions) => {
             durationSeconds,
             httpStatus: pRes.httpStatus || 200,
             status: 'success',
-            aliases,  // 하이라이트용 aliases 저장
           });
 
         } catch (e: any) {
@@ -242,7 +248,6 @@ export const executeRun = async (opts: RunOptions) => {
             durationSeconds,
             httpStatus: 500,
             status: 'failed',
-            aliases,  // 하이라이트용 aliases 저장
           });
         }
         totalTasks++;
@@ -295,9 +300,7 @@ export const executeRun = async (opts: RunOptions) => {
 
   if (runId) {
     await supabase.from('runs').update({
-      trust_score: trustReport.totalScore,
-      trust_grade: trustReport.grade,
-      geo_readiness: JSON.stringify(trustReport)
+      trust_report_json: JSON.stringify(trustReport)
     }).eq('id', runId);
   }
 
@@ -329,7 +332,6 @@ interface SaveAnswerParams {
   durationSeconds: number;
   httpStatus: number;
   status: string;
-  aliases?: string[];  // 하이라이트용 유사명칭 배열
 }
 
 const saveAnswer = async (runId: number | null, p: SaveAnswerParams) => {
@@ -356,11 +358,12 @@ const saveAnswer = async (runId: number | null, p: SaveAnswerParams) => {
       duration_seconds: p.durationSeconds,
       http_status: p.httpStatus,
       status: p.status,
-      matched_alias: p.analysis.matched_alias || null,
-      aliases_json: p.aliases ? JSON.stringify(p.aliases) : null,
     };
 
-    await supabase.from('answers').insert(payload);
+    const { error } = await supabase.from('answers').insert(payload);
+    if (error) {
+      console.error("Supabase insert answer error:", error);
+    }
   } catch (err) {
     console.error("Failed to save answer to DB", err);
   }

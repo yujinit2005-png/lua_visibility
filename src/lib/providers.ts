@@ -15,28 +15,47 @@ export interface ProviderResult {
 
 export const callOpenAI = async (prompt: string, config: ProviderConfig): Promise<ProviderResult> => {
   const modelName = 'gpt-4o';
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`
-    },
-    body: JSON.stringify({
-      model: modelName,
-      messages: [
-        {
-          role: 'system',
-          content: '사용자의 질문에 실시간 웹 검색 결과를 바탕으로 최신 및 위치 정보(행정구역)를 정확히 파악하여 답변하세요. 검색된 결과를 바탕으로 병원명, 주소, 진료시간, 출처(URL)를 구조화하여 한국어로 답변해야 합니다. 실제 존재하지 않는 병원이나 기관을 절대 만들어내지(환각) 마세요.'
+  const urls = [
+    '/api-openai/v1/chat/completions',
+    'https://api.openai.com/v1/chat/completions'
+  ];
+
+  let response: Response | null = null;
+  let lastErr = '';
+
+  for (const url of urls) {
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`
         },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.1
-    })
-  });
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            {
+              role: 'system',
+              content: '사용자의 질문에 실시간 웹 검색 결과를 바탕으로 최신 및 위치 정보(행정구역)를 정확히 파악하여 답변하세요. 검색된 결과를 바탕으로 병원명, 주소, 진료시간, 출처(URL)를 구조화하여 한국어로 답변해야 합니다. 실제 존재하지 않는 병원이나 기관을 절대 만들어내지(환각) 마세요.'
+            },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.1
+        })
+      });
+      if (response.ok) break;
+      // 404가 아닌 다른 에러(401 등)면 텍스트 읽고 중단
+      if (response.status === 401 || response.status === 429 || response.status === 400) {
+        break;
+      }
+    } catch (e: any) {
+      lastErr = e.message || String(e);
+    }
+  }
   
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`OpenAI Error (${response.status}): ${err}`);
+  if (!response || !response.ok) {
+    const err = response ? await response.text() : lastErr;
+    throw new Error(`OpenAI Error (${response ? response.status : 'Network Error'}): ${err}`);
   }
   
   const data = await response.json();
@@ -67,10 +86,10 @@ const redactApiKey = (str: string, apiKey: string): string => {
 };
 
 const STABLE_GEMINI_FALLBACKS = [
+  "gemini-2.0-flash",
   "gemini-1.5-flash",
   "gemini-1.5-pro",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash-latest"
+  "gemini-1.5-flash-8b"
 ];
 
 const listUsableGeminiModels = async (apiKey: string): Promise<string[]> => {
@@ -82,7 +101,7 @@ const listUsableGeminiModels = async (apiKey: string): Promise<string[]> => {
     const usable = models
       .filter((m: any) => (m.supportedGenerationMethods || []).includes('generateContent'))
       .map((m: any) => (m.name || '').split('/').pop() || '')
-      .filter((m: string) => !m.includes('2.5') && !m.includes('1.0')); // deprecated/invalid 필터링
+      .filter((m: string) => !m.includes('1.0'));
     
     const flash = usable.filter((m: string) => m.toLowerCase().includes('flash'));
     const sorted = flash.length > 0 ? flash : usable;
@@ -188,6 +207,7 @@ export const callGemini = async (prompt: string, config: ProviderConfig): Promis
       }
 
       currentModelIdx++;
+      retriesLeft = 1;
       continue;
     }
 
@@ -198,7 +218,7 @@ export const callGemini = async (prompt: string, config: ProviderConfig): Promis
       continue;
     }
 
-    // 3. 429/500/502/503/504 속도제한 및 서버에러 시 재시도
+    // 3. 429/500/502/503/504 속도제한 및 서버 과부하 시 재시도 및 다음 대체 모델로 자동 전환
     if ([429, 500, 502, 503, 504].includes(response.status)) {
       let bodyJson: any = null;
       let rawText = '';
@@ -207,15 +227,18 @@ export const callGemini = async (prompt: string, config: ProviderConfig): Promis
         bodyJson = JSON.parse(rawText);
       } catch (e) {}
 
-      const errDetail = formatErrDetail(response.status, rawText, bodyJson, apiKey);
+      lastErrorDetail = formatErrDetail(response.status, rawText, bodyJson, apiKey);
 
       if (retriesLeft > 0) {
         retriesLeft--;
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 1500));
         continue;
       }
-      const tag = response.status === 429 ? 'rate_limited' : 'failed';
-      throw new Error(`[${tag}] ${errDetail}`);
+
+      // 1회 재시도 후에도 해당 모델이 과부하(503) 상태면, 에러로 멈추지 않고 다음 대체 모델로 자동 전환!
+      currentModelIdx++;
+      retriesLeft = 1;
+      continue;
     }
 
     // 4. 400 이상 기타 에러
@@ -227,7 +250,10 @@ export const callGemini = async (prompt: string, config: ProviderConfig): Promis
         bodyJson = JSON.parse(rawText);
       } catch (e) {}
       const errDetail = formatErrDetail(response.status, rawText, bodyJson, apiKey);
-      throw new Error(`[failed] ${errDetail}`);
+      lastErrorDetail = errDetail;
+      currentModelIdx++;
+      retriesLeft = 1;
+      continue;
     }
 
     // 5. 성공 처리
@@ -268,22 +294,38 @@ export const callGemini = async (prompt: string, config: ProviderConfig): Promis
 
 export const callPerplexity = async (prompt: string, config: ProviderConfig): Promise<ProviderResult> => {
   const modelName = 'sonar';
-  const response = await fetch('https://api.perplexity.ai/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`
-    },
-    body: JSON.stringify({
-      model: modelName,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1
-    })
-  });
+  const urls = [
+    '/api-perplexity/chat/completions',
+    'https://api.perplexity.ai/chat/completions'
+  ];
+
+  let response: Response | null = null;
+  let lastErr = '';
+
+  for (const url of urls) {
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1
+        })
+      });
+      if (response.ok) break;
+      if (response.status === 401 || response.status === 429 || response.status === 400) break;
+    } catch (e: any) {
+      lastErr = e.message || String(e);
+    }
+  }
   
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Perplexity Error (${response.status}): ${err}`);
+  if (!response || !response.ok) {
+    const err = response ? await response.text() : lastErr;
+    throw new Error(`Perplexity Error (${response ? response.status : 'Network Error'}): ${err}`);
   }
   
   const data = await response.json();
@@ -301,25 +343,41 @@ export const callPerplexity = async (prompt: string, config: ProviderConfig): Pr
 
 export const callAnthropic = async (prompt: string, config: ProviderConfig): Promise<ProviderResult> => {
   const modelName = 'claude-3-5-sonnet-20240620';
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: modelName,
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1
-    })
-  });
+  const urls = [
+    '/api-anthropic/v1/messages',
+    'https://api.anthropic.com/v1/messages'
+  ];
+
+  let response: Response | null = null;
+  let lastErr = '';
+
+  for (const url of urls) {
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': config.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: modelName,
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1
+        })
+      });
+      if (response.ok) break;
+      if (response.status === 401 || response.status === 429 || response.status === 400) break;
+    } catch (e: any) {
+      lastErr = e.message || String(e);
+    }
+  }
   
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Anthropic Error (${response.status}): ${err}`);
+  if (!response || !response.ok) {
+    const err = response ? await response.text() : lastErr;
+    throw new Error(`Anthropic Error (${response ? response.status : 'Network Error'}): ${err}`);
   }
   
   const data = await response.json();
@@ -340,71 +398,110 @@ export interface NaverProviderConfig {
 }
 
 export const callNaverLocal = async (prompt: string, config: NaverProviderConfig, _aliases?: string[]): Promise<ProviderResult> => {
-  // 네이버 지역검색은 자연어(문장) 검색 시 결과가 0건으로 나오는 경우가 많음.
-  // 질문 형태의 불용어를 제거하고 명사 위주의 키워드로 변환
-  let searchKeyword = prompt
-    // 1. 의미없는 명사/대명사/질문
+  const clientId = config.clientId || import.meta.env.NCP_APIGW_API_KEY_ID || 'i8ciwrvzln';
+  const clientSecret = config.clientSecret || import.meta.env.NCP_APIGW_API_KEY || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x';
+
+  // 1. 불용어 및 서술어/조사 정리
+  const cleaned = prompt
     .replace(/어디야\??|어디가\??|어디서\??|어디\??|알려줘|알려주세요|추천해줘|추천해주세요|추천\??|어떻게|어떤가요\??|될까요\??|있나요\??|할까요\??|있을까요\??|어떨까요\??/g, ' ')
-    .replace(/우리|부모님|부모님이|아이|내가|가족|누가|누구|곳|여기|저기/g, ' ')
-    // 2. 수식어, 서술어, 동사형 찌꺼기
-    .replace(/가까운|편한|다니기|갈만한|모시고|받을 수 있는|받으려면|있는|많은|가장|잘하는|유명한|좋은|괜찮은|잘되어|잘되어있는|가능한|가능/g, ' ')
-    .replace(/전문의가|전문의|전문|진료하는|진료하|진료|치료하는|치료|수술하는|수술/g, ' ')
+    .replace(/우리|부모님|부모님이|아이|내가|가족|누가|누구|곳|여기|저기|이런/g, ' ')
+    .replace(/가까운|편한|다니기|갈만한|모시고|받을 수 있는|받으려면|있는|많은|가장|잘하는|유명한|좋은|괜찮은|잘되어|잘되어있는|가능한|가능|알려진/g, ' ')
+    .replace(/전문의가|전문의|전문|진료하는|진료하|진료|치료하는|치료|수술하는|수술|비수술|함께|받을/g, ' ')
     .replace(/적정성 평가가|적정성 평가|적정성|평가가|평가|1등급/g, ' ')
-    // 3. 조사 및 기호
-    .replace(/에서|으로|까지|부터|은|는|이|가|을|를|의/g, ' ')
+    .replace(/근처|주변|인근/g, ' ')
+    .replace(/에서|으로|까지|부터|은|는|이|가|을|를|의|와|과|에/g, ' ')
     .replace(/[?.,!'"~]/g, ' ')
-    // 4. 연속 공백 제거
     .replace(/\s+/g, ' ')
     .trim();
 
-  // 안전장치: 조건이 4단어 이상 길어지면 네이버 지역검색 0건 확률 급증. 
-  // (보통 지역명 1~2단어 + 진료과목 1~2단어면 충분하므로 최대 3~4단어만 사용)
-  const words = searchKeyword.split(' ');
-  if (words.length > 4) {
-    searchKeyword = words.slice(0, 4).join(' ');
-  }
-    
-  if (searchKeyword.length < 2) searchKeyword = prompt;
+  const words = cleaned.split(' ').filter(w => w.length >= 2);
 
-  const queryParam = `?query=${encodeURIComponent(searchKeyword)}&display=20&start=1&sort=random`;
-  
-  const urls = [
-    `/api-naver/search/v1/local${queryParam}`,
-    `https://naverapihub.apigw.ntruss.com/search/v1/local${queryParam}`
-  ];
+  const hospitalTypes = ['한방병원', '한의원', '요양병원', '종합병원', '정형외과', '내과의원', '내과', '치과의원', '치과', '안과의원', '안과', '피부과의원', '피부과', '병원', '의원'];
+  const diseaseKeywords = ['허리디스크', '목디스크', '척추관절', '척추', '관절', '도수치료', '추나요법', '교통사고', '신장질환', '신장내과', '인공신장실', '투석'];
 
-  let response: Response | null = null;
-  let lastErrStr = '';
+  const foundHospType = hospitalTypes.find(t => prompt.includes(t)) || '';
+  const foundDiseases = diseaseKeywords.filter(d => prompt.includes(d));
+  const regionCandidates = words.filter(w => !hospitalTypes.some(t => w.includes(t)) && !diseaseKeywords.some(d => w.includes(d) || d.includes(w)));
 
-  for (const url of urls) {
-    try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'X-NCP-APIGW-API-KEY-ID': config.clientId,
-          'X-NCP-APIGW-API-KEY': config.clientSecret
-        }
-      });
-      if (response.ok) break;
-    } catch (e: any) {
-      lastErrStr = e.message;
+  let parts: string[] = [];
+
+  // 1. 지역명 (시 + 동/구)
+  if (regionCandidates.length > 0) {
+    parts.push(regionCandidates[0]);
+    if (regionCandidates.length > 1 && (regionCandidates[1].endsWith('동') || regionCandidates[1].endsWith('구'))) {
+      parts.push(regionCandidates[1]);
     }
   }
+
+  // 2. 질환명
+  if (foundDiseases.length > 0) {
+    parts.push(foundDiseases[0]);
+  }
+
+  // 3. 병원 유형 (한방병원, 내과 등 필수 포함)
+  if (foundHospType && !parts.some(p => p.includes(foundHospType))) {
+    parts.push(foundHospType);
+  } else if (!foundHospType && !parts.some(p => p.includes('병원') || p.includes('의원') || p.includes('내과'))) {
+    parts.push('병원');
+  }
+
+  let searchKeyword = Array.from(new Set(parts)).join(' ').trim() || cleaned || prompt;
+
+  const fetchNaverSearch = async (kw: string) => {
+    const queryParam = `?query=${encodeURIComponent(kw)}&display=20&start=1&sort=random`;
+    const urls = [
+      `/api-naver/search/v1/local${queryParam}`,
+      `https://naverapihub.apigw.ntruss.com/search/v1/local${queryParam}`
+    ];
+    let res: Response | null = null;
+    let lastErr = '';
+    for (const u of urls) {
+      try {
+        res = await fetch(u, {
+          method: 'GET',
+          headers: {
+            'X-NCP-APIGW-API-KEY-ID': clientId,
+            'X-NCP-APIGW-API-KEY': clientSecret
+          }
+        });
+        if (res.ok) break;
+      } catch (e: any) {
+        lastErr = e.message;
+      }
+    }
+    return { res, lastErr };
+  };
+
+  let actualSearchKeyword = searchKeyword;
+  let { res: response, lastErr: lastErrStr } = await fetchNaverSearch(searchKeyword);
 
   if (!response || !response.ok) {
     const errText = response ? await response.text() : lastErrStr;
     throw new Error(`Naver Local Search Error (${response ? response.status : 'Network Error'}): ${errText}`);
   }
 
-  const data = await response.json();
-  const items = data.items || [];
+  let data = await response.json();
+  let items: any[] = data.items || [];
+
+  // 검색 결과가 0건일 경우, [지역 + 병원유형] (예: '청주 한방병원', '용인 내과')으로 2차 재검색 시도
+  if (items.length === 0 && regionCandidates.length > 0 && (foundHospType || '병원')) {
+    const fallbackKw = `${regionCandidates[0]} ${foundHospType || '병원'}`;
+    if (fallbackKw !== searchKeyword) {
+      const fallbackRes = await fetchNaverSearch(fallbackKw);
+      if (fallbackRes.res && fallbackRes.res.ok) {
+        const fallbackData = await fallbackRes.res.json();
+        if (fallbackData.items && fallbackData.items.length > 0) {
+          items = fallbackData.items;
+          actualSearchKeyword = `${searchKeyword} ➔ [재검색] ${fallbackKw}`;
+        }
+      }
+    }
+  }
 
   const cleanTag = (str: string) => (str || '').replace(/<[^>]*>?/g, '');
-
-  // 질문 문장을 형태소(단어) 단위로 대략 분리하여 콤마로 연결 (추천, 잘하는 등의 키워드가 텍스트에 포함되도록 유도)
   const questionWords = prompt.split(/\s+/).filter(w => w.length > 0).join(', ');
-
   const citations: string[] = [];
+
   const formattedItems = items.map((item: any, index: number) => {
     const title = cleanTag(item.title);
     const category = cleanTag(item.category);
@@ -415,8 +512,6 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
     
     if (link) citations.push(link);
     
-    // 네이버 검색 결과를 LLM 텍스트처럼 풍부하게 구성
-    // 질문 키워드를 카테고리에 포함시켜 타 AI와 동일한 추천(recommended) 판정이 가능하도록 함
     return `[${index + 1}] 
 🏥 병원명(타이틀): ${title}
 🌐 홈페이지(링크): ${link}
@@ -426,8 +521,13 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
 📝 설명: ${description}`;
   }).join('\n\n');
 
+  const resultHeader = `네이버 지역검색(NAVER API HUB) 실측 결과입니다.
+📌 원문 질문: ${prompt}
+🔍 실제 검색 쿼리: '${actualSearchKeyword}'
+📊 총 검색 결과: ${data.total || items.length}건 중 상위 ${items.length}건`;
+
   return {
-    text: `네이버 지역검색(NAVER API HUB) 결과입니다.\n\n${formattedItems}`,
+    text: `${resultHeader}\n\n${formattedItems || '(검색된 지역 병원 데이터가 없습니다.)'}`,
     model: 'naver-local-search',
     searchUsed: true,
     citations: citations.length > 0 ? citations : null,

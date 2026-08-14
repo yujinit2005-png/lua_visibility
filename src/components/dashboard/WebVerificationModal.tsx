@@ -18,13 +18,17 @@ interface WebAnswerRow {
   isLoading?: boolean;
 }
 
+import { RunSelector } from './RunSelector';
+import type { RunItemWithDetails } from './RunSelector';
+import { Trash2 } from 'lucide-react';
+
 interface WebVerificationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  runId: number;
+  runId?: number | null;
   hospitalCode: string;
   hospitalName: string;
-  onChangeRun: () => void;
+  onChangeRun?: () => void;
 }
 
 // ── 플랫폼 목록 정의 ──────────────────────────────────────────────────
@@ -36,12 +40,20 @@ const PLATFORM_LIST = [
   { key: 'Claude',    providerKey: 'anthropic',   label: 'Claude',       color: '#D97706' },
 ];
 
+const GENERIC_EXCLUDE_WORDS = new Set(['병원', '의원', '한방병원', '한의원', '한방', '센터', '클리닉', '의료원', '진료', '치료']);
+
 // ── 병원명 하이라이트 유틸 ────────────────────────────────────────────
 const highlightText = (text: string, aliases: string[]): React.ReactNode => {
-  if (!text || aliases.length === 0) return text;
+  if (!text || !aliases || aliases.length === 0) return text;
 
-  // 빈 문자열 제거 후 길이 내림차순 정렬 (긴 것 먼저 매칭)
-  const sortedAliases = [...aliases].filter(a => a.trim().length > 0).sort((a, b) => b.length - a.length);
+  // 빈 문자열 및 일반 명사 단독 제외 후 길이 내림차순 정렬 (긴 것 먼저 매칭)
+  const validAliases = aliases
+    .filter(a => typeof a === 'string')
+    .map(a => a.trim())
+    .filter(a => a.length >= 2 && !GENERIC_EXCLUDE_WORDS.has(a));
+
+  const sortedAliases = Array.from(new Set(validAliases)).sort((a, b) => b.length - a.length);
+  if (sortedAliases.length === 0) return text;
 
   // 정규식 이스케이프
   const escapeReg = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -99,8 +111,11 @@ const getDefaultMemo = (platKey: string, hospName: string, isApi: boolean, isWeb
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────
 export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
-  isOpen, onClose, runId, hospitalCode, hospitalName, onChangeRun,
+  isOpen, onClose, runId: initialRunId, hospitalCode, hospitalName,
 }) => {
+  const [runs, setRuns] = useState<RunItemWithDetails[]>([]);
+  const [currentRunId, setCurrentRunId] = useState<number | null>(initialRunId || null);
+
   // [변경] 단일 platform → 체크박스 Set
   const [checkedPlatforms, setCheckedPlatforms] = useState<Set<string>>(new Set());
   const [executedPlatforms, setExecutedPlatforms] = useState<Set<string>>(new Set());
@@ -110,11 +125,111 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoCrawling, setIsAutoCrawling] = useState(false);
   const [activeIframeUrl, setActiveIframeUrl] = useState<string | null>(null);
-  const [activeIframeTitle, setActiveIframeTitle] = useState('');
+  const [activeIframeTitle] = useState('');
   const [isExpandedAll, setIsExpandedAll] = useState(false);
 
   // aliases 로드
   const [_hospitalAliases, setHospitalAliases] = useState<string[]>([]);
+
+  // ── runs 목록 로드 & 최신 회차 자동 선택 ──────────────────────────
+  useEffect(() => {
+    if (isOpen && hospitalCode) {
+      fetchRunsAndInit();
+    }
+  }, [isOpen, hospitalCode]);
+
+  useEffect(() => {
+    if (initialRunId) {
+      setCurrentRunId(initialRunId);
+    }
+  }, [initialRunId]);
+
+  const fetchRunsAndInit = async () => {
+    try {
+      const { data: runData, error: runErr } = await supabase
+        .from('runs')
+        .select('*')
+        .eq('hospital_code', hospitalCode)
+        .order('id', { ascending: false });
+
+      if (runErr) throw runErr;
+      const rawRuns = runData || [];
+
+      // 각 run의 answers 집계 (사용된 도구 및 수집 건수)
+      const runIds = rawRuns.map(r => r.id);
+      let answersSummaryMap: Record<number, { providers: Set<string>; count: number }> = {};
+
+      if (runIds.length > 0) {
+        const { data: ansData } = await supabase
+          .from('answers')
+          .select('run_id, provider')
+          .in('run_id', runIds);
+
+        (ansData || []).forEach(a => {
+          if (!answersSummaryMap[a.run_id]) {
+            answersSummaryMap[a.run_id] = { providers: new Set(), count: 0 };
+          }
+          if (a.provider) answersSummaryMap[a.run_id].providers.add(a.provider);
+          answersSummaryMap[a.run_id].count++;
+        });
+      }
+
+      const detailedRuns: RunItemWithDetails[] = rawRuns.map(r => ({
+        ...r,
+        providers: answersSummaryMap[r.id] ? Array.from(answersSummaryMap[r.id].providers) : [],
+        answer_count: answersSummaryMap[r.id]?.count || 0
+      }));
+
+      setRuns(detailedRuns);
+
+      if (detailedRuns.length > 0) {
+        if (!initialRunId || !detailedRuns.find(r => r.id === initialRunId)) {
+          setCurrentRunId(detailedRuns[0].id);
+        } else {
+          setCurrentRunId(initialRunId);
+        }
+      } else {
+        setCurrentRunId(null);
+        setRows([]);
+      }
+    } catch (e) {
+      console.error('Failed to fetch runs in WebVerificationModal:', e);
+    }
+  };
+
+  const handleDeleteRun = async (targetRunId: number) => {
+    try {
+      setLoading(true);
+
+      // 1. answers 삭제
+      await supabase.from('answers').delete().eq('run_id', targetRunId);
+
+      // 2. web_verifications & web_verification_answers 삭제
+      const { data: verifs } = await supabase
+        .from('web_verifications')
+        .select('id')
+        .eq('run_id', targetRunId);
+
+      if (verifs && verifs.length > 0) {
+        const verifIds = verifs.map(v => v.id);
+        await supabase.from('web_verification_answers').delete().in('verification_id', verifIds);
+        await supabase.from('web_verifications').delete().eq('run_id', targetRunId);
+      }
+
+      // 3. runs 삭제
+      const { error: runDelErr } = await supabase.from('runs').delete().eq('id', targetRunId);
+      if (runDelErr) throw runDelErr;
+
+      alert(`✅ Run #${targetRunId} 진단 회차 및 연계된 비교검색 데이터가 모두 삭제되었습니다.`);
+
+      // 4. 목록 다시 불러오기
+      await fetchRunsAndInit();
+    } catch (err: any) {
+      alert(`❌ 회차 삭제 실패: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // ── aliases 로드 ───────────────────────────────────────────────────
   const loadAliases = useCallback(async () => {
@@ -152,6 +267,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
 
   // ── 데이터 로드 ────────────────────────────────────────────────────
   const fetchVerificationData = useCallback(async () => {
+    if (!currentRunId) return;
     setLoading(true);
     try {
       const aliases = await loadAliases();
@@ -160,7 +276,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
       const { data: answersData, error: ansErr } = await supabase
         .from('answers')
         .select('*')
-        .eq('run_id', runId)
+        .eq('run_id', currentRunId)
         .order('id', { ascending: true });
 
       if (ansErr) throw ansErr;
@@ -177,18 +293,15 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
         else if (prov.includes('anthropic') || prov.includes('claude')) detected.add('Claude');
       });
       setExecutedPlatforms(detected);
-      // 처음 로드 시 실행된 플랫폼 모두 체크
-      setCheckedPlatforms(prev => {
-        if (prev.size === 0) return new Set(detected);
-        return prev;
-      });
+      // 회차 선택 시 당시 실제 실행된 AI들로 자동 체크
+      setCheckedPlatforms(new Set(detected));
 
       // web_verifications 저장 데이터 조회 (모든 플랫폼)
       const savedAnswersMap = new Map<string, any>();
       const { data: allVerifs } = await supabase
         .from('web_verifications')
         .select('id, platform')
-        .eq('run_id', runId);
+        .eq('run_id', currentRunId);
 
       if (allVerifs && allVerifs.length > 0) {
         for (const verif of allVerifs) {
@@ -263,13 +376,13 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [runId, hospitalCode, hospitalName, loadAliases]);
+  }, [currentRunId, hospitalCode, hospitalName, loadAliases]);
 
   useEffect(() => {
-    if (isOpen && runId) {
+    if (isOpen && currentRunId) {
       fetchVerificationData();
     }
-  }, [isOpen, runId]);
+  }, [isOpen, currentRunId, fetchVerificationData]);
 
   // ── 내장 뷰어 실측 (파이썬 팝업 크롤링 API 연동) ────────────────────────
   const handleOpenViewer = async (row: WebAnswerRow) => {
@@ -316,20 +429,11 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
     }
   };
 
-  // ── 1회성 로그인 ──────────────────────────────────────────────────
-  const handleOpenLogin = () => {
-    // 첫 번째 체크된 플랫폼 기준
-    const first = PLATFORM_LIST.find(p => checkedPlatforms.has(p.key));
-    let loginUrl = 'https://accounts.google.com';
-    if (first?.key === 'ChatGPT') loginUrl = 'https://chatgpt.com/auth/login';
-    else if (first?.key === 'Perplexity') loginUrl = 'https://www.perplexity.ai';
-    else if (first?.key === 'Claude') loginUrl = 'https://claude.ai';
-    setActiveIframeUrl(loginUrl);
-    setActiveIframeTitle(`⚡ 사전 계정 로그인 (${first?.label || ''})`);
-  };
+
 
   // ── DB 저장 ───────────────────────────────────────────────────────
   const handleSaveToDb = async () => {
+    if (!currentRunId) return;
     setIsSaving(true);
     try {
       // 체크된 플랫폼별 저장
@@ -340,7 +444,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
         // 기존 삭제
         const { data: oldVerifs } = await supabase
           .from('web_verifications').select('id')
-          .eq('run_id', runId).eq('platform', platKey);
+          .eq('run_id', currentRunId).eq('platform', platKey);
         if (oldVerifs && oldVerifs.length > 0) {
           const ids = oldVerifs.map(v => v.id);
           await supabase.from('web_verification_answers').delete().in('verification_id', ids);
@@ -353,7 +457,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
         const { data: verif, error: verifErr } = await supabase
           .from('web_verifications')
           .insert({
-            run_id: runId,
+            run_id: currentRunId,
             hospital_code: hospitalCode,
             hospital_name: hospitalName,
             platform: platKey,
@@ -434,24 +538,69 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
         />
       )}
 
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 p-4 font-sans">
-        <div className="bg-white rounded-lg shadow-2xl w-full max-w-[95vw] h-[92vh] flex flex-col overflow-hidden border border-emerald-300">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-3 font-sans">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-[99vw] h-[96vh] flex flex-col overflow-hidden border border-emerald-300">
           {/* Header */}
           <div className="bg-[#059669] text-white px-6 py-3 flex justify-between items-center shadow-sm">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <span className="text-xl">🌐</span>
-              <h2 className="text-lg font-bold">
-                웹 UI 실측 및 교차 비교 분석 — [{hospitalName}] (선택된 측정 회차: Run #{runId})
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-bold">
+                  웹 UI 실측 및 교차 비교 분석 — [{hospitalName}]
+                </h2>
+                {currentRunId && (
+                  <span className="bg-emerald-900/60 border border-emerald-300/40 text-emerald-100 text-xs px-2.5 py-0.5 rounded-full font-semibold">
+                    현재 회차: Run #{currentRunId}
+                  </span>
+                )}
+              </div>
             </div>
             <button onClick={onClose} className="text-white hover:text-gray-200 text-2xl font-bold">
               &times;
             </button>
           </div>
 
-          {/* Controls Bar 1 - 체크박스 플랫폼 선택 */}
-          <div className="bg-emerald-50 px-6 py-3 border-b border-emerald-200 flex justify-between items-center text-xs font-semibold text-emerald-900 flex-wrap gap-2">
-            <div className="flex items-center gap-4 flex-wrap">
+          {/* Controls Bar 1 - 회차 선택 & 체크박스 플랫폼 선택 */}
+          <div className="bg-emerald-50 px-6 py-2.5 border-b border-emerald-200 flex justify-between items-center text-xs font-semibold text-emerald-900 flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              
+              {/* 회차 선택 커스텀 컴포넌트 (통합: 상태, 도구 태그, 삭제 지원) */}
+              <RunSelector
+                runs={runs}
+                currentRunId={currentRunId}
+                onSelectRun={(selectedId) => setCurrentRunId(selectedId)}
+                onDeleteRun={handleDeleteRun}
+                disabled={loading}
+                themeColor="emerald"
+              />
+
+              {/* 현재 회차 즉시 삭제 버튼 */}
+              {currentRunId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const confirmMsg = 
+                      `⚠️ [진단 회차 삭제]\n\n` +
+                      `정말 현재 선택된 Run #${currentRunId} 회차를 삭제하시겠습니까?\n\n` +
+                      `※ 주의:\n` +
+                      `해당 회차에 수집된 AI 진단 답변 데이터와 함께\n` +
+                      `[웹 UI 실측 및 교차 비교검색 데이터]까지 모두 영구 삭제되며 복구할 수 없습니다.`;
+
+                    if (window.confirm(confirmMsg)) {
+                      handleDeleteRun(currentRunId);
+                    }
+                  }}
+                  disabled={loading}
+                  title="현재 선택된 회차 삭제"
+                  className="flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg px-2.5 py-1.5 font-bold transition-all active:scale-95 disabled:opacity-50"
+                >
+                  <Trash2 size={13} />
+                  <span>회차 삭제</span>
+                </button>
+              )}
+
+              <div className="h-4 w-px bg-emerald-200" />
+
               <span className="font-bold text-emerald-800">실측 플랫폼:</span>
               {PLATFORM_LIST.map(pl => {
                 const isExecuted = executedPlatforms.has(pl.key);
@@ -480,38 +629,40 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
               })}
               <button
                 onClick={fetchVerificationData}
-                className="bg-emerald-700 text-white px-2 py-1 rounded hover:bg-emerald-800 ml-2"
+                className="bg-emerald-700 text-white px-2 py-1 rounded hover:bg-emerald-800 ml-1"
               >
                 🔄 새로고침
               </button>
             </div>
-
-            <button onClick={onChangeRun} className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 rounded flex items-center gap-1 font-bold">
-              <span>⚙️</span> 측정 회차(Run) 변경
-            </button>
           </div>
 
           {/* Controls Bar 2 */}
-          <div className="bg-white px-6 py-2 border-b border-gray-200 flex flex-wrap gap-2 text-xs">
-            <button onClick={handleOpenLogin} className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-3 py-1.5 rounded flex items-center gap-1 shadow-sm">
-              <span>⚡</span> 1회성 AI계정 사전 로그인
-            </button>
-            <button
-              onClick={handleAutoCrawl}
-              disabled={isAutoCrawling}
-              className={`${isAutoCrawling ? 'bg-gray-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold px-3 py-1.5 rounded flex items-center gap-1 shadow-sm transition-colors`}
-            >
-              <span>{isAutoCrawling ? '⏳' : '🚀'}</span> {isAutoCrawling ? '전체 자동 실측 진행중...' : '전체 질문 순차 자동 실측'}
-            </button>
-            <button onClick={() => setActiveIframeUrl(null)} className="bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded flex items-center gap-1 shadow-sm">
-              <span>❌</span> 전체 내장 창 일괄 닫기
-            </button>
-            <button
-              onClick={() => setIsExpandedAll(!isExpandedAll)}
-              className={`font-bold px-3 py-1.5 rounded flex items-center gap-1 transition-colors text-white ${isExpandedAll ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-sky-600 hover:bg-sky-700'}`}
-            >
-              <span>📖</span> {isExpandedAll ? '크롤링 결과 접기' : '크롤링 결과 전체 펼쳐보기'}
-            </button>
+          <div className="bg-white px-6 py-2 border-b border-gray-200 flex flex-wrap gap-2 text-xs items-center justify-between">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleAutoCrawl}
+                disabled={isAutoCrawling}
+                className={`${isAutoCrawling ? 'bg-gray-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold px-3.5 py-1.5 rounded flex items-center gap-1 shadow-sm transition-colors`}
+              >
+                <span>{isAutoCrawling ? '⏳' : '🚀'}</span> {isAutoCrawling ? '전체 자동 실측 진행중...' : '전체 질문 순차 자동 실측'}
+              </button>
+              <button
+                onClick={() => setIsExpandedAll(!isExpandedAll)}
+                className={`font-bold px-3.5 py-1.5 rounded flex items-center gap-1 transition-colors text-white ${isExpandedAll ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-sky-600 hover:bg-sky-700'}`}
+              >
+                <span>📖</span> {isExpandedAll ? '크롤링 결과 접기' : '크롤링 결과 전체 펼쳐보기'}
+              </button>
+            </div>
+
+            {/* 오른쪽 상단: 전체 내장 창 일괄 닫기 + 닫기 버튼 */}
+            <div className="flex items-center gap-2 ml-auto">
+              <button onClick={() => setActiveIframeUrl(null)} className="bg-red-600 hover:bg-red-700 text-white font-bold px-3.5 py-1.5 rounded flex items-center gap-1 shadow-sm">
+                <span>❌</span> 전체 내장 창 일괄 닫기
+              </button>
+              <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white font-bold px-4 py-1.5 rounded flex items-center gap-1 shadow-sm transition-colors">
+                닫기
+              </button>
+            </div>
           </div>
 
           {/* Table */}
@@ -532,7 +683,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
                     <th className="px-2 py-2 text-center font-bold w-24 border-r">API 언급</th>
                     <th className="px-2 py-2 text-center font-bold w-24 border-r">웹 UI 실측</th>
                     <th className="px-2 py-2 text-center font-bold w-28 border-r">내장 뷰어</th>
-                    <th className="px-2 py-2 text-left font-bold w-64 border-r">API검색결과 / 메모</th>
+                    <th className="px-2 py-2 text-left font-bold w-96 min-w-[380px] border-r">API검색결과 / 메모</th>
                     <th className="px-3 py-2 text-left font-bold">웹 UI 수집 원문 (크롤링 결과)</th>
                   </tr>
                 </thead>
@@ -578,9 +729,9 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
                           <span>{row.isLoading ? '⏳' : '👁️'}</span> {row.isLoading ? '수집 중' : '내장 뷰어 실측'}
                         </button>
                       </td>
-                      <td className="px-2 py-2 border-r align-top">
+                      <td className="px-3 py-2 border-r align-top w-96 min-w-[380px]">
                         <div className={`mb-2 text-gray-700 text-[11px] font-mono leading-snug ${
-                          isExpandedAll ? 'whitespace-pre-wrap break-words max-w-[450px]' : 'max-w-[300px] overflow-hidden'
+                          isExpandedAll ? 'whitespace-pre-wrap break-words' : 'max-w-[420px] overflow-hidden'
                         }`} title={row.api_raw_text}>
                           {row.api_raw_text ? (
                             isExpandedAll ? (
@@ -628,10 +779,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="bg-gray-100 px-6 py-3 border-t flex justify-between items-center">
-            <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white px-5 py-1.5 rounded text-xs font-bold transition-colors">
-              닫기
-            </button>
+          <div className="bg-gray-100 px-6 py-3 border-t flex justify-end items-center">
             <button 
               onClick={handleSaveToDb} 
               disabled={isSaving}

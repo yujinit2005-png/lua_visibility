@@ -23,13 +23,32 @@ const pythonServerPlugin = () => {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), pythonServerPlugin()],
-  envPrefix: ['VITE_', 'OPENAI_', 'GEMINI_', 'PERPLEXITY_', 'ANTHROPIC_', 'NAVER_'],
+  envPrefix: ['VITE_', 'OPENAI_', 'GEMINI_', 'PERPLEXITY_', 'ANTHROPIC_', 'NAVER_', 'NCP_'],
   server: {
     proxy: {
+      '/api-openai': {
+        target: 'https://api.openai.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-openai/, ''),
+        secure: true,
+      },
+      '/api-perplexity': {
+        target: 'https://api.perplexity.ai',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-perplexity/, ''),
+        secure: true,
+      },
+      '/api-anthropic': {
+        target: 'https://api.anthropic.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-anthropic/, ''),
+        secure: true,
+      },
       '/api-naver': {
         target: 'https://naverapihub.apigw.ntruss.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api-naver/, ''),
+        secure: true,
       },
     },
   },

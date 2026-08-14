@@ -39,6 +39,7 @@ export interface DashboardState {
     render: StepStatus;
   };
   setStepStatus: (step: string, status: StepStatus) => void;
+  resetStepStatus: () => void;
   
   startTime: string;
   setStartTime: (val: string) => void;
@@ -67,14 +68,44 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   const [version, setVersion] = useState('');
   const [hospitalUrl, setHospitalUrl] = useState('');
   const [pdfName, setPdfName] = useState('');
-  const [apiKeys, setApiKeys] = useState({ 
+  const ENV_DEFAULT_KEYS = { 
     openai: import.meta.env.OPENAI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY || '', 
     gemini: import.meta.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '', 
     perplexity: import.meta.env.PERPLEXITY_API_KEY || import.meta.env.VITE_PERPLEXITY_API_KEY || '', 
-    naverId: import.meta.env.NAVER_CLIENT_ID || import.meta.env.VITE_NCP_APIGW_API_KEY_ID || 'i8ciwrvzln',
-    naverSecret: import.meta.env.NAVER_CLIENT_SECRET || import.meta.env.VITE_NCP_APIGW_API_KEY || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x',
+    naverId: import.meta.env.NCP_APIGW_API_KEY_ID || import.meta.env.NAVER_CLIENT_ID || import.meta.env.VITE_NCP_APIGW_API_KEY_ID || 'i8ciwrvzln',
+    naverSecret: import.meta.env.NCP_APIGW_API_KEY || import.meta.env.NAVER_CLIENT_SECRET || import.meta.env.VITE_NCP_APIGW_API_KEY || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x',
     anthropic: import.meta.env.ANTHROPIC_API_KEY || import.meta.env.VITE_ANTHROPIC_API_KEY || '' 
-  });
+  };
+
+  const getInitialKeys = () => {
+    try {
+      const localSaved = localStorage.getItem('luvis_api_keys');
+      if (localSaved) {
+        const parsed = JSON.parse(localSaved);
+        return {
+          openai: parsed.openai || ENV_DEFAULT_KEYS.openai,
+          gemini: parsed.gemini || ENV_DEFAULT_KEYS.gemini,
+          perplexity: parsed.perplexity || ENV_DEFAULT_KEYS.perplexity,
+          naverId: parsed.naverId || ENV_DEFAULT_KEYS.naverId,
+          naverSecret: parsed.naverSecret || ENV_DEFAULT_KEYS.naverSecret,
+          anthropic: parsed.anthropic || ENV_DEFAULT_KEYS.anthropic,
+        };
+      }
+    } catch(e) {}
+    return ENV_DEFAULT_KEYS;
+  };
+
+  const [apiKeys, setApiKeysState] = useState(getInitialKeys());
+
+  const setApiKeys = (updater: any) => {
+    setApiKeysState((prev: any) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try {
+        localStorage.setItem('luvis_api_keys', JSON.stringify(next));
+      } catch(e) {}
+      return next;
+    });
+  };
 
   useEffect(() => {
     const loadApiKeysFromSupabase = async () => {
@@ -87,15 +118,20 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
         
         if (!error && data && data.value) {
           const remoteKeys = data.value as typeof apiKeys;
-          setApiKeys(prev => ({
-            ...prev,
-            openai: remoteKeys.openai || prev.openai,
-            gemini: remoteKeys.gemini || prev.gemini,
-            perplexity: remoteKeys.perplexity || prev.perplexity,
-            naverId: remoteKeys.naverId || prev.naverId,
-            naverSecret: remoteKeys.naverSecret || prev.naverSecret,
-            anthropic: remoteKeys.anthropic || prev.anthropic
-          }));
+          setApiKeysState(prev => {
+            const merged = {
+              openai: (remoteKeys.openai && remoteKeys.openai.length > 20) ? remoteKeys.openai : (prev.openai || ENV_DEFAULT_KEYS.openai),
+              gemini: (remoteKeys.gemini && remoteKeys.gemini.length > 10) ? remoteKeys.gemini : (prev.gemini || ENV_DEFAULT_KEYS.gemini),
+              perplexity: (remoteKeys.perplexity && remoteKeys.perplexity.length > 10) ? remoteKeys.perplexity : (prev.perplexity || ENV_DEFAULT_KEYS.perplexity),
+              naverId: remoteKeys.naverId || prev.naverId || ENV_DEFAULT_KEYS.naverId,
+              naverSecret: remoteKeys.naverSecret || prev.naverSecret || ENV_DEFAULT_KEYS.naverSecret,
+              anthropic: remoteKeys.anthropic || prev.anthropic || ENV_DEFAULT_KEYS.anthropic
+            };
+            try {
+              localStorage.setItem('luvis_api_keys', JSON.stringify(merged));
+            } catch(e) {}
+            return merged;
+          });
         }
       } catch (err) {
         console.error('Failed to load API keys from Supabase:', err);
@@ -120,6 +156,18 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
     setStepStatusState(prev => ({ ...prev, [step]: status }));
   };
 
+  const resetStepStatus = () => {
+    setStepStatusState({
+      init: 'pending',
+      measurement: 'pending',
+      scoring: 'pending',
+      trust: 'pending',
+      render: 'pending'
+    });
+    setStartTime('-');
+    setEndTime('-');
+  };
+
   const [startTime, setStartTime] = useState('-');
   const [endTime, setEndTime] = useState('-');
   const [isRunning, setIsRunning] = useState(false);
@@ -139,6 +187,7 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
       apiKeys, setApiKeys,
       logs, appendLog, clearLogs,
       stepStatus, setStepStatus: setStepStatus as any,
+      resetStepStatus,
       startTime, setStartTime,
       endTime, setEndTime,
       isRunning, setIsRunning,
