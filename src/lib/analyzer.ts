@@ -54,9 +54,14 @@ export const analyzeAnswer = (
   }
 
   // 2) 경쟁 병원 집계 (등록된 경쟁사 + 정규식 자동 감지)
+  const GENERIC_HOSP_NOUNS = new Set([
+    '한방병원', '한의원', '병원', '의원', '종합병원', '대학병원', '요양병원', 
+    '전문병원', '일반병원', '치과의원', '피부과의원', '상급종합병원', '클리닉', '센터', '진료소', '보건소'
+  ]);
+
   for (const comp of competitors) {
     const nc = normalizeText(comp);
-    if (nc && normAnswer.includes(nc)) {
+    if (nc && !GENERIC_HOSP_NOUNS.has(comp) && normAnswer.includes(nc)) {
       const isOurAlias = sortedAliases.some(a => normalizeText(a) === nc);
       if (!isOurAlias && !result.competitors_found.includes(comp)) {
         result.competitors_found.push(comp);
@@ -64,14 +69,17 @@ export const analyzeAnswer = (
     }
   }
 
-  // 2-2) 답변 원문에서 등장하는 일반 병원 이름 자동 감지 (DB 수동 미등록 시 보완)
+  // 2-2) 답변 원문에서 등장하는 고유 병원 이름 자동 감지 (일반 명사 단독 제외)
   const hospMatches = answerText.match(/[가-힣]{2,10}(한방병원|한의원|병원|의원|내과의원|정형외과)/g);
   if (hospMatches) {
     hospMatches.forEach(hName => {
-      const nh = normalizeText(hName);
-      const isOurAlias = sortedAliases.some(a => normalizeText(a) === nh);
-      if (!isOurAlias && !result.competitors_found.includes(hName)) {
-        result.competitors_found.push(hName);
+      const trimmed = hName.trim();
+      const nh = normalizeText(trimmed);
+      // 일반 분류 명사이거나(예: '한방병원', '종합병원'), 우리 병원 별칭인 경우 제외
+      if (GENERIC_HOSP_NOUNS.has(trimmed)) return;
+      const isOurAlias = sortedAliases.some(a => normalizeText(a) === nh || nh.includes(normalizeText(a)));
+      if (!isOurAlias && !result.competitors_found.includes(trimmed)) {
+        result.competitors_found.push(trimmed);
       }
     });
   }

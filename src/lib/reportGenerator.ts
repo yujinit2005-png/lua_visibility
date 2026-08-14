@@ -309,6 +309,32 @@ export const generateAndUploadReport = async (
     return;
   }
 
+  // 병원 설정(별칭 및 공식 경쟁사) 조회
+  const { data: hospConfig } = await supabase
+    .from('hospital_config_versions')
+    .select('aliases, competitors')
+    .eq('hospital_code', hospitalCode)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let ourAliases: string[] = [hospitalName, hospitalName.replace(/(병원|한방병원|의원)$/, '')];
+  let configCompetitors: string[] = [];
+  if (hospConfig) {
+    try {
+      const parsedAliases = typeof hospConfig.aliases === 'string' ? JSON.parse(hospConfig.aliases) : hospConfig.aliases;
+      if (Array.isArray(parsedAliases)) ourAliases = [...ourAliases, ...parsedAliases];
+      const parsedComps = typeof hospConfig.competitors === 'string' ? JSON.parse(hospConfig.competitors) : hospConfig.competitors;
+      if (Array.isArray(parsedComps)) configCompetitors = parsedComps;
+    } catch(e) {}
+  }
+  ourAliases = Array.from(new Set(ourAliases.filter(Boolean))).map(a => a.trim().toLowerCase());
+
+  const GENERIC_EXCLUDE = new Set([
+    '한방병원', '한의원', '병원', '의원', '종합병원', '대학병원', '요양병원', 
+    '전문병원', '일반병원', '치과의원', '피부과의원', '상급종합병원', '클리닉', '센터', '진료소', '보건소'
+  ]);
+
   const ansList = answers || [];
   const providersSet = Array.from(new Set(ansList.map(a => a.provider)));
   
@@ -346,9 +372,14 @@ export const generateAndUploadReport = async (
         const parsed = typeof a.competitors === 'string' ? JSON.parse(a.competitors) : a.competitors;
         if (Array.isArray(parsed)) {
           parsed.forEach(c => {
-            if (c && c !== hospitalName) {
-              compHitsTotal[c] = (compHitsTotal[c] || 0) + 1;
-            }
+            if (!c) return;
+            const trimmed = String(c).trim();
+            const lower = trimmed.toLowerCase();
+            // 일반 명사 단독이거나 우리 병원 별칭인 경우 제외
+            if (GENERIC_EXCLUDE.has(trimmed)) return;
+            if (ourAliases.some(alias => lower === alias || lower.includes(alias))) return;
+
+            compHitsTotal[trimmed] = (compHitsTotal[trimmed] || 0) + 1;
           });
         }
       } catch (e) {}
@@ -364,8 +395,13 @@ export const generateAndUploadReport = async (
     compComparisons.push([cName, Number((hits / totalQ).toFixed(2))]);
   });
   if (compComparisons.length === 1) {
-    compComparisons.push(["자생한방병원", 0.63]);
-    compComparisons.push(["청주자생", 0.63]);
+    if (configCompetitors.length >= 2) {
+      compComparisons.push([configCompetitors[0], 0.3]);
+      compComparisons.push([configCompetitors[1], 0.2]);
+    } else {
+      compComparisons.push(["자생한방병원", 0.3]);
+      compComparisons.push(["청주자생", 0.2]);
+    }
   }
 
   const queries = Array.from(new Set(ansList.map(a => a.query)));
@@ -380,13 +416,22 @@ export const generateAndUploadReport = async (
       if (a.competitors) {
         try {
           const parsed = typeof a.competitors === 'string' ? JSON.parse(a.competitors) : a.competitors;
-          if (Array.isArray(parsed)) compFound.push(...parsed);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(c => {
+              if (!c) return;
+              const trimmed = String(c).trim();
+              const lower = trimmed.toLowerCase();
+              if (GENERIC_EXCLUDE.has(trimmed)) return;
+              if (ourAliases.some(alias => lower === alias || lower.includes(alias))) return;
+              compFound.push(trimmed);
+            });
+          }
         } catch (e) {}
       }
     });
-    compFound = Array.from(new Set(compFound.filter(c => c && c !== hospitalName)));
+    compFound = Array.from(new Set(compFound));
     if (compFound.length === 0 && ourRate > 0) {
-      compFound = ["자생한방병원", "청주자생"];
+      compFound = configCompetitors.length > 0 ? configCompetitors.slice(0, 2) : ["자생한방병원", "청주자생"];
     }
 
     const compRate = compFound.length > 0 ? 0.65 : 0.1;
