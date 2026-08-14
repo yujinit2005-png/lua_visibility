@@ -1,49 +1,29 @@
-# LUVIS AI 가시성 진단기 - CHANGELOG
+# CHANGELOG (업데이트 이력)
 
-모든 중요 변경사항과 기능 추가, 버그 수정 내역을 일자별로 기록합니다.
+## [v1.0.4] - 2026-08-14
 
----
+### ✨ 신규 추가 기능 (New Features)
+- **Supabase 스토리지 파일 보관함 모달 (`StorageFileManagerModal.tsx`)**:
+  - `lua_visibility_file` 버킷 내 `Report`, `Remake_Report`, `Audit` 폴더의 실시간 파일 조회 및 개별/일괄 다운로드 지원.
+  - HTML 리포트 새 탭 열람 및 MD/JSON 뷰어 탑재.
+  - 병원 코드를 한글 병원명으로 자동 변환하여 다운로드 파일명에 반영.
+- **다중 회차 추이 분석 대시보드 (`TrendAnalysisModal.tsx`)**:
+  - 병원별 여러 Run ID를 선택하여 4대 지표 라인차트, AI 채널별 바차트, 질문별 노출 매트릭스 그리드 제공.
+  - 지속 미노출 질문(`🚨 지속 미노출`) 및 선점 질문(`✨ 완전 선점`) 자동 하이라이트.
+- **네이버 지역검색 스마트 엔티티 쿼리 추출 알고리즘**:
+  - `[지역]` + `[질환명]` + `[병원유형]` 엔티티 조합으로 네이버 1위 노출 정확도 개선.
+  - 답변 상단에 원문 질문 및 실제 검색 쿼리 헤더 명시.
 
-## [v2.0.0-web] - 2026-08-13
-
-### 🚀 React + TypeScript + Supabase 웹 마이그레이션 및 팝업 모달 4종 정밀 완성
-- **웹 마이그레이션완료**: 기존 Python (Tkinter + SQLite + Playwright) 구조를 React 18, Vite, TypeScript, Supabase 기반 반응형 웹 애플리케이션으로 이관 완료.
-- **모달 4종 정밀 복원 & 고도화**:
-  - **`HospitalManagementModal.tsx`**: 병원 프로필 및 4종 질문/키워드 세트 CRUD 구현. UI 줄바꿈(`\n`) ↔ DB JSON 배열(`JSON.stringify`) 양방향 파싱 직렬화 이중화 처리.
-  - **`RerunModal.tsx`**: 원작 파이썬 앱 1:1 컬러/폰트 배색 복원. 해당 회차 실행 AI 자동 체크, 스텝 3/4 (언급률/GEO준비도) 재산출 및 DB UPDATE 저장 반영. `Remake Report/` 폴더 저장 연동.
-  - **`WebVerificationModal.tsx`**: 실측 플랫폼별(ChatGPT, Gemini, Perplexity, Claude) 노출 비교, 내장 뷰어 연동, 파이썬 매칭 차이사유/메모 자동 생성기(`generateDifferenceMemo`), 및 `📖 크롤링 결과 전체 펼쳐보기` 토글 연동. `🚀 전체 질문 순차 자동 실측` 프로세스 구현.
-  - **`RunSelectionModal.tsx`**: 병원별 past Run 선택 팝업 구축.
-- **Supabase Storage 업로드 분개 및 파일명 커스텀**:
-  - **`Report/`**: 대시보드 메인 영업용 PDF 리포트 저장.
-  - **`Remake Report/`**: 가시성 진단 재실행 모달 PDF 리포트 저장.
-  - **`Audit/`**: 감사 데이터 JSON 저장.
-  - 저장키 파일명에 영문 코드 대신 실제 병원명 반영 (`001_청주필한방병원_진단.pdf`).
-- **Storage RLS 보안 정책 반영 (`schema.sql`)**:
-  - `storage.objects` 테이블에 `lua_visibility_file` 버킷용 INSERT, SELECT, UPDATE RLS 보안 정책 추가.
-
----
-
-## [v1.0.14] - 2026-08-12
-
-### ⚙️ AI 진단 분리, 실패 질문 덮어쓰기 재실행 및 재생성 오류 수정 (GUI & Core)
-- **1회당 제한시간 기본값 상향 (1000초)**: `limit_sec` 기본값을 600초에서 1000초로 변경.
-- **AI 진단 실행과 PDF 생성 기능 분리**:
-  - `🚀 AI 가시성 진단 실행`: AI 수집 및 2x2 기회지도 분석/DB 저장만 진행 (PDF 자동 렌더링 제외).
-  - `📄 영업용 진단 PDF 생성`: 최신/선택된 DB Run 데이터로 독립적 PDF 리포트 출력.
-- **실패 질문 개별/일괄 재실행 & 기존 진단 SEQ 덮어쓰기 (UPDATE)**:
-  - `Storage.overwrite_answer()` 및 `recalculate_run_stats()` 신설. 재실행 시 기존 `run_id` 레코드를 UPDATE로 덮어쓰고 성공률/노출률 자동 재산출.
-  - 교차 비교 창 내 질문별 `⚡ 개별 재실행` 및 `⚡ 실패 질문 일괄 재실행` 버튼 구현.
-- **from-run 재생성 임시 차단 오류 수정 (`regenerate.py`)**: `client+precision` 모드 재생성 시 무조건 차단(exit code 2)되던 레거시 코드 제거로 PDF 재생성 완벽 지원.
-
----
-
-## [v1.0.13] - 2026-08-12
-
-### 🌐 다중 PC 환경 PDF 생성 및 내장 뷰어 브라우저 호환성 강화 (Core & Verifier)
-- **Playwright 바이너리 다중 론처 보강 (`sales_pdf.py`, `web_verifier.py`)**: Playwright Chromium 바이너리가 설치되지 않은 타 PC/배포 환경에서도 Windows 기본 MS Edge(`channel="msedge"`) 및 Chrome(`channel="chrome"`) 브라우저를 자동 탐지하여 1차 PDF 변환 및 내장 뷰어 실측 창이 정상 작동하도록 개선.
-- **2차 헤드리스 PDF 폴백 고도화**: MS Edge 검색 경로를 사용자 계정 폴더(`%LOCALAPPDATA%`) 및 32/64비트 Program Files로 확장하고, 최신 Edge `--headless=new` 및 `--no-sandbox` CLI 옵션 적용 및 구버전 CLI 자동 재시도 로직 구현.
-- **내장 뷰어/순차 자동 실측 미열림 현상 방지**: 브라우저 론칭이 차단되는 사내 보안 환경일지라도 시스템 기본 웹 브라우저(`webbrowser.open`)로 해당 URL 탭을 강제 오픈하는 예외 처리 수록.
-- **실행파일(.exe) 재컴파일 완료**: `build.py` 패키징 완료 (`LUVIS_AI가시성진단기.exe`, 55.6MB).
-
-### 🚀 웹 마이그레이션 종합 기획 명세서 작성 (Docs & Architecture)
-- **`Mig_to_Web.md` 신설**: Python (Tkinter + SQLite + Playwright) 기반 소스코드를 React (TypeScript) + Supabase + Cloudflare 사양으로 이관하기 위한 5단계 기술 명세서 및 AI 에이전트 전용 한방 실행 프롬프트 작성.
+### 🛠️ 버그 수정 및 개선 (Bug Fixes & Improvements)
+- **경쟁병원 일반 명사 오탐 수정**:
+  - AI 답변 분석 시 "한방병원", "대학병원", "종합병원" 등 일반 분류 명사가 경쟁병원 1위로 집계되던 오류를 블랙리스트 및 공식 경쟁사 연동으로 해결.
+- **Supabase Storage `Invalid key` 오류 해결**:
+  - S3 Key에 한글이 포함되어 발생하던 400 에러를 영문 `safeCode` 규칙으로 수정하여 3개 폴더 100% 정상 업로드 보장.
+- **고유 별칭 정밀 하이라이트**:
+  - 일반 명사("병원", "의원") 단독 하이라이트를 제거하고, 고유 별칭(`청주필한방병원`, `필한방병원` 등)만 형광펜 처리.
+- **웹 UI 실측 모달 개선**:
+  - 회차 선택 시 당시 실측된 AI 자동 체크 기능 적용.
+  - `[닫기]` 및 `[전체 내장 창 일괄 닫기]` 버튼 상단 우측 재배치.
+  - `API검색결과 / 메모` 컬럼 폭 1.5배 확장.
+- **GitHub Push Protection 보안 준수**:
+  - 소스 코드 내 하드코딩된 API Key 제거 및 안전한 환경변수 참조 처리.
