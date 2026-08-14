@@ -174,68 +174,59 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
   const handleDownloadCrawlerScript = () => {
     const batContent = `@echo off\r
 setlocal\r
-chcp 65001 > nul\r
-title [LUVIS] 루비스 AI 웹 실측 로컬 크롤러 에이전트\r
+title LUVIS AI Crawler Server\r
 \r
-echo ===================================================================\r
-echo   🌟 [LUVIS] 루비스 AI 웹 실측 로컬 크롤러 에이전트 (Port: 5000)\r
-echo ===================================================================\r
+echo ========================================================\r
+echo   LUVIS AI Local Crawler Agent (Port 5000)\r
+echo ========================================================\r
 echo.\r
 \r
-:: 1. 작업 디렉토리 설정 (C:\\lua_crawler)\r
 set "TARGET_DIR=C:\\lua_crawler"\r
-if not exist "%TARGET_DIR%" (\r
-    echo [1/4] 크롤러 전용 디렉토리(%TARGET_DIR%) 생성 중...\r
-    mkdir "%TARGET_DIR%" > nul 2>&1\r
-)\r
+if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"\r
 \r
-:: 2. 파이썬 설치 확인 및 부재 시 자동 설치\r
+:: 1. Python check\r
 set "PY_CMD=python"\r
-%PY_CMD% --version > nul 2>&1\r
-if errorlevel 1 (\r
-    py --version > nul 2>&1\r
-    if not errorlevel 1 (\r
-        set "PY_CMD=py"\r
-    ) else (\r
-        echo [2/4] 파이썬이 설치되어 있지 않습니다.\r
-        echo       Python 3.11 자동 다운로드 및 설치를 시작합니다 (약 30초 소요)...\r
-        powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object System.Net.WebClient).DownloadFile('https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe', \\"$env:TEMP\\python_installer.exe\\")"\r
-        echo       파이썬 설치를 진행합니다. 잠시만 기다려주세요...\r
-        start /wait "" "%TEMP%\\python_installer.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_pip=1\r
-        set "PATH=%LOCALAPPDATA%\\Programs\\Python\\Python311;%LOCALAPPDATA%\\Programs\\Python\\Python311\\Scripts;C:\\Program Files\\Python311;C:\\Program Files\\Python311\\Scripts;%PATH%"\r
-    )\r
+python --version >nul 2>&1\r
+if %errorlevel% equ 0 goto :py_ok\r
+\r
+py --version >nul 2>&1\r
+if %errorlevel% equ 0 (\r
+    set "PY_CMD=py"\r
+    goto :py_ok\r
 )\r
 \r
-echo [2/4] 파이썬 환경 확인 완료 (%PY_CMD%)\r
+echo [1/3] Downloading and installing Python 3.11...\r
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile '$env:TEMP/py_setup.exe'"\r
+start /wait "" "%TEMP%\\py_setup.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_pip=1\r
+set "PATH=%LOCALAPPDATA%\\Programs\\Python\\Python311;%LOCALAPPDATA%\\Programs\\Python\\Python311\\Scripts;C:\\Program Files\\Python311;C:\\Program Files\\Python311\\Scripts;%PATH%"\r
 \r
-:: 3. 최신 크롤링 엔진 파일(api_server.py) 동기화\r
-echo [3/4] 최신 크롤링 엔진(api_server.py)을 다운로드 및 점검합니다...\r
-powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { (New-Object System.Net.WebClient).DownloadFile('https://raw.githubusercontent.com/yujinit2005-png/lua_visibility/main/src/services/api_server.py', 'C:\\lua_crawler\\api_server.py') } catch { exit 1 }" > nul 2>&1\r
+:py_ok\r
+echo [1/3] Python environment: %PY_CMD%\r
+\r
+:: 2. Download / copy api_server.py\r
+echo [2/3] Checking api_server.py...\r
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/yujinit2005-png/lua_visibility/main/src/services/api_server.py' -OutFile 'C:/lua_crawler/api_server.py' } catch {}"\r
 \r
 if not exist "%TARGET_DIR%\\api_server.py" (\r
     if exist "%~dp0src\\services\\api_server.py" (\r
-        copy /Y "%~dp0src\\services\\api_server.py" "%TARGET_DIR%\\api_server.py" > nul 2>&1\r
+        copy /Y "%~dp0src\\services\\api_server.py" "%TARGET_DIR%\\api_server.py" >nul 2>&1\r
     )\r
 )\r
 \r
-:: 4. 서버 구동\r
-echo [4/4] 루비스 로컬 크롤링 API 서버를 구동합니다...\r
-echo -------------------------------------------------------------------\r
-echo  * 실행 파일: %TARGET_DIR%\\api_server.py\r
-echo  * 로컬 API 주소: http://127.0.0.1:5000 (Port 5000)\r
-echo  * 상태: Cloudflare 배포 웹사이트(https://lua-visibility.pages.dev)\r
-echo          및 로컬 웹앱과 실시간 연동 대기 중...\r
-echo  * (본 창을 닫지 마시고 최소화하여 유지해주세요.)\r
-echo -------------------------------------------------------------------\r
+:: 3. Run server\r
+echo [3/3] Starting LUVIS Crawler Server...\r
+echo --------------------------------------------------------\r
+echo  * Server URL: http://127.0.0.1:5000\r
+echo  * Connected with https://lua-visibility.pages.dev\r
+echo  * Please keep this window OPEN while testing.\r
+echo --------------------------------------------------------\r
 echo.\r
 \r
 cd /d "%TARGET_DIR%"\r
 %PY_CMD% api_server.py\r
 \r
 echo.\r
-echo ===================================================================\r
-echo   [안내] 크롤러 서버가 종료되었습니다.\r
-echo ===================================================================\r
+echo [Server stopped.]\r
 pause\r
 `;
     const blob = new Blob([batContent], { type: 'application/x-bat;charset=utf-8' });
