@@ -14,7 +14,8 @@ import {
   CheckCircle2, 
   AlertCircle,
   ExternalLink,
-  X
+  X,
+  Filter
 } from 'lucide-react';
 
 interface StorageFileManagerModalProps {
@@ -32,6 +33,7 @@ interface StorageFileInfo {
   created_at: string;
   extension: string;
   fullPath: string;
+  publicUrl?: string;
 }
 
 const FOLDERS = [
@@ -51,8 +53,9 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
   const [files, setFiles] = useState<StorageFileInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [onlyCurrentHospital, setOnlyCurrentHospital] = useState<boolean>(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-  const [previewContent, setPreviewContent] = useState<{ title: string; content: string; ext: string } | null>(null);
+  const [previewContent, setPreviewContent] = useState<{ title: string; content: string; ext: string; url?: string } | null>(null);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const showToast = (type: 'success' | 'error', text: string) => {
@@ -60,6 +63,18 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
     setTimeout(() => setActionMessage(null), 4000);
   };
 
+  // 병원 코드 -> 한글 병원명 치환 헬퍼
+  const getDisplayName = useCallback((rawName: string) => {
+    let result = rawName;
+    hospitals.forEach(h => {
+      if (h.hospital_code && h.name) {
+        result = result.replace(new RegExp(h.hospital_code, 'g'), h.name);
+      }
+    });
+    return result;
+  }, [hospitals]);
+
+  // 파일 목록 로드
   const fetchFiles = useCallback(async () => {
     setLoading(true);
     const targetFolders = selectedFolder === 'ALL' 
@@ -70,25 +85,26 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
 
     try {
       for (const folder of targetFolders) {
+        // 호환성을 위해 가장 안전한 list 호출
         const { data, error } = await supabase.storage
           .from('lua_visibility_file')
-          .list(folder, {
-            limit: 100,
-            offset: 0,
-            sortBy: { column: 'created_at', order: 'desc' }
-          });
+          .list(folder, { limit: 1000, offset: 0 });
 
         if (error) {
           console.warn(`Folder '${folder}' fetch warning:`, error.message);
           continue;
         }
 
-        if (data) {
+        if (data && Array.isArray(data)) {
           data.forEach(item => {
             // 폴더 자체나 .emptyFolderPlaceholder 제외
             if (!item.name || item.name.startsWith('.')) return;
             const ext = item.name.split('.').pop()?.toLowerCase() || '';
             const fullPath = `${folder}/${item.name}`;
+
+            const { data: pubData } = supabase.storage
+              .from('lua_visibility_file')
+              .getPublicUrl(fullPath);
 
             resultFiles.push({
               name: item.name,
@@ -99,13 +115,20 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
               created_at: item.created_at || new Date().toISOString(),
               extension: ext,
               fullPath,
+              publicUrl: pubData?.publicUrl,
             });
           });
         }
       }
 
-      // 최신 생성순 정렬
-      resultFiles.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      // 최신 생성순 정렬 (파일명 또는 생성일 기준)
+      resultFiles.sort((a, b) => {
+        const timeA = new Date(a.created_at).getTime();
+        const timeB = new Date(b.created_at).getTime();
+        if (timeA !== timeB) return timeB - timeA;
+        return b.name.localeCompare(a.name);
+      });
+
       setFiles(resultFiles);
     } catch (e: any) {
       showToast('error', `파일 목록 조회 실패: ${e.message}`);
@@ -123,27 +146,25 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
 
   if (!isOpen) return null;
 
-  // 병원 코드 -> 한글 병원명 치환 헬퍼 (예: 045_HOSP_001_20260814_01.html -> 045_청주필한방병원_20260814_01.html)
-  const getDisplayName = useCallback((rawName: string) => {
-    let result = rawName;
-    hospitals.forEach(h => {
-      if (h.hospital_code && h.name) {
-        result = result.replace(new RegExp(h.hospital_code, 'g'), h.name);
-      }
-    });
-    return result;
-  }, [hospitals]);
-
   // 단일 파일 다운로드
   const handleDownloadFile = async (file: StorageFileInfo) => {
     const downloadName = getDisplayName(file.name);
     try {
       showToast('success', `📥 '${downloadName}' 다운로드 준비 중...`);
+      
       const { data, error } = await supabase.storage
         .from('lua_visibility_file')
         .download(file.fullPath);
 
-      if (error || !data) throw error || new Error('다운로드할 파일 데이터가 없습니다.');
+      if (error || !data) {
+        // Fallback: public url로 직접 다운로드 시도
+        if (file.publicUrl) {
+          window.open(file.publicUrl, '_blank');
+          showToast('success', `✅ '${downloadName}' 다운로드 창이 열렸습니다.`);
+          return;
+        }
+        throw error || new Error('다운로드할 파일 데이터가 없습니다.');
+      }
 
       const url = URL.createObjectURL(data);
       const a = document.createElement('a');
@@ -167,13 +188,13 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
     
     for (const f of targetItems) {
       await handleDownloadFile(f);
-      // 브라우저 팝업 차단 방지용 약간의 지연
       await new Promise(r => setTimeout(r, 400));
     }
   };
 
-  // 파일 미리보기 (HTML, MD, JSON 등)
+  // 파일 미리보기
   const handlePreviewFile = async (file: StorageFileInfo) => {
+    const titleName = getDisplayName(file.name);
     try {
       const { data, error } = await supabase.storage
         .from('lua_visibility_file')
@@ -181,24 +202,13 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
 
       if (error || !data) throw error || new Error('미리보기 데이터를 불러올 수 없습니다.');
 
-      if (file.extension === 'html') {
-        const text = await data.text();
-        const win = window.open('', '_blank');
-        if (win) {
-          win.document.open();
-          win.document.write(text);
-          win.document.close();
-        } else {
-          showToast('error', '팝업 차단이 설정되어 있어 새 창을 열 수 없습니다.');
-        }
-      } else {
-        const text = await data.text();
-        setPreviewContent({
-          title: `${file.folder} / ${file.name}`,
-          content: text,
-          ext: file.extension
-        });
-      }
+      const text = await data.text();
+      setPreviewContent({
+        title: `${file.folder} / ${titleName}`,
+        content: text,
+        ext: file.extension,
+        url: file.publicUrl
+      });
     } catch (e: any) {
       showToast('error', `미리보기 실패: ${e.message}`);
     }
@@ -224,11 +234,20 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
     }
   };
 
-  // 검색어 필터링
+  // 검색어 및 현재 병원 필터링
   const filteredFiles = files.filter(f => {
     const term = searchTerm.toLowerCase().trim();
+    const displayName = getDisplayName(f.name).toLowerCase();
+    const rawName = f.name.toLowerCase();
+
+    if (onlyCurrentHospital && hospitalName) {
+      if (!displayName.includes(hospitalName.toLowerCase()) && !rawName.includes(hospitalName.toLowerCase())) {
+        return false;
+      }
+    }
+
     if (!term) return true;
-    return f.name.toLowerCase().includes(term) || f.folder.toLowerCase().includes(term);
+    return displayName.includes(term) || rawName.includes(term) || f.folder.toLowerCase().includes(term);
   });
 
   const isAllSelected = filteredFiles.length > 0 && filteredFiles.every(f => selectedFiles.has(f.fullPath));
@@ -252,16 +271,16 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
 
   const getFileIcon = (ext: string) => {
     switch (ext) {
-      case 'html': return <FileCode className="text-orange-500" size={16} />;
-      case 'md': return <FileText className="text-blue-500" size={16} />;
-      case 'json': return <FileSpreadsheet className="text-emerald-500" size={16} />;
-      default: return <FileText className="text-gray-400" size={16} />;
+      case 'html': return <FileCode className="text-orange-500 shrink-0" size={16} />;
+      case 'md': return <FileText className="text-blue-500 shrink-0" size={16} />;
+      case 'json': return <FileSpreadsheet className="text-emerald-500 shrink-0" size={16} />;
+      default: return <FileText className="text-gray-400 shrink-0" size={16} />;
     }
   };
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 font-sans">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 font-sans">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden border border-slate-700">
           
           {/* Header */}
@@ -271,13 +290,13 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
                 <HardDrive size={18} />
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-base font-bold tracking-tight">Supabase 스토리지 파일 보관함</h2>
                   <span className="bg-orange-600/80 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full">
                     lua_visibility_file
                   </span>
                   {hospitalName && (
-                    <span className="text-xs text-slate-300 font-medium">
+                    <span className="text-xs text-slate-300 font-semibold">
                       — [{hospitalName}]
                     </span>
                   )}
@@ -327,6 +346,22 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
                   </button>
                 );
               })}
+
+              {/* 현재 병원 필터 토글 */}
+              {hospitalName && (
+                <button
+                  onClick={() => setOnlyCurrentHospital(!onlyCurrentHospital)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                    onlyCurrentHospital 
+                      ? 'bg-orange-100 text-orange-800 border-orange-300' 
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                  title="현재 선택된 병원의 파일만 보기"
+                >
+                  <Filter size={12} className={onlyCurrentHospital ? 'text-orange-600' : 'text-slate-400'} />
+                  <span>현재 병원만 필터</span>
+                </button>
+              )}
             </div>
 
             {/* Right: Search & Action Buttons */}
@@ -337,8 +372,8 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
                   type="text"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  placeholder="파일명 또는 폴더 검색..."
-                  className="pl-8 pr-3 py-1 text-xs border border-slate-300 rounded-lg w-52 bg-white outline-none focus:border-orange-500 font-medium"
+                  placeholder="파일명 검색..."
+                  className="pl-8 pr-3 py-1 text-xs border border-slate-300 rounded-lg w-48 bg-white outline-none focus:border-orange-500 font-medium"
                 />
               </div>
 
@@ -403,6 +438,8 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
                   ) : (
                     filteredFiles.map((file) => {
                       const isChecked = selectedFiles.has(file.fullPath);
+                      const displayName = getDisplayName(file.name);
+
                       return (
                         <tr
                           key={file.fullPath}
@@ -429,7 +466,7 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
                           <td className="py-2 px-3 font-mono font-semibold text-slate-900 break-all">
                             <div className="flex items-center gap-1.5">
                               {getFileIcon(file.extension)}
-                              <span>{getDisplayName(file.name)}</span>
+                              <span>{displayName}</span>
                             </div>
                           </td>
                           <td className="py-2 px-3 text-center">
@@ -448,10 +485,10 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
                               <button
                                 onClick={() => handlePreviewFile(file)}
                                 className="flex items-center gap-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded text-[11px] font-bold border border-slate-200 transition-colors"
-                                title={file.extension === 'html' ? '새 탭에서 리포트 열기' : '내용 미리보기'}
+                                title="미리보기 열기"
                               >
-                                {file.extension === 'html' ? <ExternalLink size={12} className="text-orange-600" /> : <Eye size={12} />}
-                                <span>{file.extension === 'html' ? '열기' : '보기'}</span>
+                                <Eye size={12} className="text-indigo-600" />
+                                <span>보기</span>
                               </button>
                               <button
                                 onClick={() => handleDownloadFile(file)}
@@ -487,26 +524,57 @@ export const StorageFileManagerModal: React.FC<StorageFileManagerModalProps> = (
         </div>
       </div>
 
-      {/* Preview Modal for MD / JSON */}
+      {/* Embedded Preview Modal (HTML / MD / JSON) */}
       {previewContent && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/80 p-4 font-sans">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl h-[80vh] flex flex-col overflow-hidden border border-slate-400">
-            <div className="bg-slate-900 text-white px-5 py-3 flex justify-between items-center">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/85 p-4 font-sans">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden border border-slate-500">
+            <div className="bg-slate-900 text-white px-5 py-3 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-2">
-                <FileText size={16} className="text-orange-400" />
+                {getFileIcon(previewContent.ext)}
                 <span className="font-bold text-xs font-mono">{previewContent.title}</span>
               </div>
-              <button
-                onClick={() => setPreviewContent(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                {previewContent.ext === 'html' && (
+                  <button
+                    onClick={() => {
+                      const win = window.open('', '_blank');
+                      if (win) {
+                        win.document.open();
+                        win.document.write(previewContent.content);
+                        win.document.close();
+                      }
+                    }}
+                    className="flex items-center gap-1 bg-orange-600 hover:bg-orange-700 text-white px-2.5 py-1 rounded text-xs font-bold"
+                  >
+                    <ExternalLink size={12} />
+                    <span>새 탭에서 열기</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setPreviewContent(null)}
+                  className="text-slate-400 hover:text-white p-1"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
-            <div className="flex-1 p-4 overflow-y-auto bg-slate-50 font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed select-text">
-              {previewContent.content}
+            
+            {/* HTML 내장 렌더링 또는 텍스트 뷰어 */}
+            <div className="flex-1 overflow-y-auto bg-slate-50">
+              {previewContent.ext === 'html' ? (
+                <iframe
+                  title="HTML Report Preview"
+                  srcDoc={previewContent.content}
+                  className="w-full h-full border-0 bg-white"
+                />
+              ) : (
+                <div className="p-4 font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed select-text">
+                  {previewContent.content}
+                </div>
+              )}
             </div>
-            <div className="bg-slate-100 px-5 py-2.5 border-t flex justify-end">
+
+            <div className="bg-slate-100 px-5 py-2.5 border-t flex justify-end shrink-0">
               <button
                 onClick={() => setPreviewContent(null)}
                 className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-1 rounded text-xs font-bold"
