@@ -34,13 +34,30 @@ def install_requirements():
 
 install_requirements()
 
-# 패키지 설치 후 임포트
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from playwright.sync_api import sync_playwright
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+@app.before_request
+def handle_options():
+    if request.method == 'OPTIONS':
+        res = make_response()
+        res.headers["Access-Control-Allow-Origin"] = "*"
+        res.headers["Access-Control-Allow-Headers"] = "*"
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+        res.headers["Access-Control-Allow-Private-Network"] = "true"
+        return res, 200
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
 
 # 2. 크롤링 대상 기본 URL
 PLATFORM_URL_TEMPLATES = {
@@ -58,11 +75,11 @@ active_browsers = set()
 stop_requested = False
 window_offset_counter = 0
 
-@app.route('/api/health', methods=['GET'])
+@app.route('/api/health', methods=['GET', 'OPTIONS'])
 def health_check():
-    return jsonify({"status": "ok", "time": time.time()})
+    return jsonify({"status": "ok", "message": "LUVIS Local Crawler Server is running", "time": time.time()})
 
-@app.route('/api/close_all', methods=['POST', 'GET'])
+@app.route('/api/close_all', methods=['POST', 'GET', 'OPTIONS'])
 def close_all_browsers():
     global active_browsers, stop_requested
     stop_requested = True
@@ -303,4 +320,5 @@ def verify_platform():
 
 if __name__ == '__main__':
     print("[LUA AI] 내장 뷰어 크롤링용 로컬 API 서버 구동 완료 (Port: 5000)")
-    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
+    print("[LUA AI] 대기 중... (http://127.0.0.1:5000 / http://localhost:5000)")
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

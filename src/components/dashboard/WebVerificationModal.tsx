@@ -20,7 +20,7 @@ interface WebAnswerRow {
 
 import { RunSelector } from './RunSelector';
 import type { RunItemWithDetails } from './RunSelector';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Download, Settings, RefreshCw, CheckCircle2, AlertCircle, X } from 'lucide-react';
 
 interface WebVerificationModalProps {
   isOpen: boolean;
@@ -131,6 +131,99 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
 
   // aliases 로드
   const [_hospitalAliases, setHospitalAliases] = useState<string[]>([]);
+
+  // ── 로컬 크롤러 에이전트 연동 상태 ────────────────────────────────
+  const [crawlerApiUrl, setCrawlerApiUrl] = useState<string>(() => {
+    return localStorage.getItem('lua_crawler_api_url') || (import.meta.env.VITE_CRAWLER_API_URL as string) || 'http://127.0.0.1:5000';
+  });
+  const [tempApiUrl, setTempApiUrl] = useState<string>(crawlerApiUrl);
+  const [crawlerStatus, setCrawlerStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [showCrawlerModal, setShowCrawlerModal] = useState<boolean>(false);
+  const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
+
+  // 크롤러 헬스체크 함수
+  const checkCrawlerHealth = useCallback(async (urlToCheck?: string) => {
+    const targetUrl = (urlToCheck || crawlerApiUrl).replace(/\/+$/, '');
+    setCrawlerStatus('checking');
+    try {
+      const res = await fetch(`${targetUrl}/api/health`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) {
+        setCrawlerStatus('connected');
+        return true;
+      } else {
+        setCrawlerStatus('disconnected');
+        return false;
+      }
+    } catch {
+      setCrawlerStatus('disconnected');
+      return false;
+    }
+  }, [crawlerApiUrl]);
+
+  // 모달 열릴 때 및 API URL 변경 시 크롤러 상태 점검
+  useEffect(() => {
+    if (isOpen) {
+      checkCrawlerHealth();
+    }
+  }, [isOpen, crawlerApiUrl, checkCrawlerHealth]);
+
+  // 원클릭 로컬 크롤러 실행기 다운로드 (.bat)
+  const handleDownloadCrawlerScript = () => {
+    const batContent = `@echo off\r
+chcp 65001 > nul\r
+title [LUVIS] 루비스 AI 웹 실측 로컬 크롤러 에이전트\r
+\r
+echo ===================================================================\r
+echo   🌟 [LUVIS] 루비스 AI 웹 실측 로컬 크롤러 에이전트 (Port: 5000)\r
+echo ===================================================================\r
+echo.\r
+\r
+:: 1. 파이썬 설치 확인\r
+python --version > nul 2>&1\r
+if %errorlevel% neq 0 (\r
+    echo [경고] 파이썬(Python)이 설치되어 있지 않거나 환경변수 PATH에 등록되지 않았습니다.\r
+    echo https://www.python.org/downloads/ 에서 Python 3.9 이상을 설치하고\r
+    echo 설치 시 반드시 "Add python.exe to PATH" 를 체크해주세요.\r
+    echo.\r
+    pause\r
+    exit /b\r
+)\r
+\r
+echo [1/3] 파이썬 환경 확인 완료.\r
+echo [2/3] 필수 패키지(Flask, Playwright) 및 크롬 브라우저 점검 중...\r
+echo.\r
+\r
+:: 2. api_server.py 실행 (스크립트 내부에서 패키지 및 브라우저 자동 점검)\r
+echo [3/3] 크롤링 API 서버를 구동합니다...\r
+echo -------------------------------------------------------------------\r
+echo  * 로컬 API 주소: http://127.0.0.1:5000\r
+echo  * 상태: Cloudflare 배포 웹사이트(https://lua-visibility.pages.dev)\r
+echo          및 로컬 웹앱과 실시간 연동 대기 중...\r
+echo  * (본 터미널 창을 닫지 말고 최소화하여 유지해주세요.)\r
+echo -------------------------------------------------------------------\r
+echo.\r
+\r
+python src/services/api_server.py\r
+\r
+if %errorlevel% neq 0 (\r
+    echo.\r
+    echo [오류] 크롤러 서버가 예기치 않게 종료되었습니다.\r
+    pause\r
+)\r
+`;
+    const blob = new Blob([batContent], { type: 'application/x-bat;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'run_crawler_agent.bat';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   // ── runs 목록 로드 & 최신 회차 자동 선택 ──────────────────────────
   useEffect(() => {
@@ -394,8 +487,10 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
         : r
     ));
 
+    const baseApiUrl = crawlerApiUrl.replace(/\/+$/, '');
+
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/verify', {
+      const res = await fetch(`${baseApiUrl}/api/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform: row.platform, query: row.query }),
@@ -408,6 +503,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
       const cleanText = crawledText.replace(/\s+/g, '');
       const isMentioned = row.aliases.some(a => cleanText.includes(a.replace(/\s+/g, '')));
 
+      setCrawlerStatus('connected');
       setRows(prev => prev.map(r => 
         (r.platform === row.platform && r.query === row.query) 
           ? { 
@@ -421,13 +517,14 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
       ));
     } catch (e: any) {
       console.error(e);
+      setCrawlerStatus('disconnected');
       setRows(prev => prev.map(r => 
         (r.platform === row.platform && r.query === row.query) 
           ? { ...r, isLoading: false, web_raw_text: `❌ 크롤링 실패 (파이썬 API 서버 미실행/타임아웃): ${e.message}` } 
           : r
       ));
       if (!isSilent) {
-        alert('크롤링 API 서버(Port 5000) 연결 실패!\nstart_app.bat을 실행하거나 백그라운드에서 python src/services/api_server.py가 구동 중인지 확인해주세요.');
+        setShowCrawlerModal(true);
       }
       throw e;
     }
@@ -506,8 +603,9 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
     setActiveIframeUrl(null);
 
     // 2. 파이썬 크롤링 백엔드에 모든 활성 브라우저 창 종료 요청
+    const baseApiUrl = crawlerApiUrl.replace(/\/+$/, '');
     try {
-      await fetch('http://127.0.0.1:5000/api/close_all', { method: 'POST' });
+      await fetch(`${baseApiUrl}/api/close_all`, { method: 'POST' });
     } catch (e) {
       console.warn('close_all API 호출 경고:', e);
     }
@@ -520,13 +618,17 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
 
     autoCrawlCancelledRef.current = false;
     setIsAutoCrawling(true);
+    const baseApiUrl = crawlerApiUrl.replace(/\/+$/, '');
+
     try {
       // 1. 사전 헬스체크: 서버가 살아있는지 먼저 확인
       try {
-        const healthRes = await fetch('http://127.0.0.1:5000/api/health', { signal: AbortSignal.timeout(2000) });
+        const healthRes = await fetch(`${baseApiUrl}/api/health`, { signal: AbortSignal.timeout(2500) });
         if (!healthRes.ok) throw new Error();
+        setCrawlerStatus('connected');
       } catch {
-        alert('❌ 크롤링 API 서버(Port 5000)가 구동 중이지 않습니다!\n\nstart_app.bat을 다시 실행하거나 터미널에서\npython src/services/api_server.py 를 실행해주세요.');
+        setCrawlerStatus('disconnected');
+        setShowCrawlerModal(true);
         return;
       }
 
@@ -697,6 +799,46 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
               >
                 <span>📖</span> {isExpandedAll ? '크롤링 결과 접기' : '크롤링 결과 전체 펼쳐보기'}
               </button>
+
+              <div className="h-4 w-px bg-gray-300 mx-1" />
+
+              {/* 크롤러 상태 인디케이터 및 설정 열기 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setTempApiUrl(crawlerApiUrl);
+                  setShowCrawlerModal(true);
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm ${
+                  crawlerStatus === 'connected'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                    : crawlerStatus === 'checking'
+                    ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                    : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100 animate-pulse'
+                }`}
+                title="로컬 크롤러 에이전트 연결 상태 및 설정"
+              >
+                <span className={`w-2.5 h-2.5 rounded-full ${
+                  crawlerStatus === 'connected' ? 'bg-emerald-500' :
+                  crawlerStatus === 'checking' ? 'bg-amber-500 animate-ping' : 'bg-rose-500'
+                }`} />
+                <span>
+                  {crawlerStatus === 'connected' ? '로컬 크롤러 연결됨 (5000)' :
+                   crawlerStatus === 'checking' ? '크롤러 확인 중...' : '로컬 크롤러 미연결'}
+                </span>
+                <Settings size={13} className="text-gray-500 hover:text-gray-800 ml-0.5" />
+              </button>
+
+              {/* 원클릭 다운로드 버튼 */}
+              <button
+                type="button"
+                onClick={handleDownloadCrawlerScript}
+                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all"
+                title="로컬 PC에서 크롤러를 바로 띄울 수 있는 실행 파일(.bat) 다운로드"
+              >
+                <Download size={13} />
+                <span>크롤러 다운로드 (.bat)</span>
+              </button>
             </div>
 
             {/* 오른쪽 상단: 전체 내장 창 일괄 닫기 + 닫기 버튼 */}
@@ -845,6 +987,155 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ── 로컬 크롤러 에이전트 연동 & 다운로드 가이드 모달 ────────────────── */}
+      {showCrawlerModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 font-sans animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-5 py-4 flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">🤖</span>
+                <h3 className="text-base font-bold">로컬 크롤러 에이전트 연동 & 가이드</h3>
+              </div>
+              <button
+                onClick={() => setShowCrawlerModal(false)}
+                className="text-white/80 hover:text-white text-xl p-1 rounded transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 text-xs text-gray-700 max-h-[80vh] overflow-y-auto">
+              {/* Status Banner */}
+              <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
+                crawlerStatus === 'connected'
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                  : 'bg-rose-50 border-rose-300 text-rose-900'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  {crawlerStatus === 'connected' ? (
+                    <CheckCircle2 size={22} className="text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle size={22} className="text-rose-600 shrink-0" />
+                  )}
+                  <div>
+                    <div className="font-bold text-sm">
+                      {crawlerStatus === 'connected' ? '로컬 크롤러 정상 연결됨' : '로컬 크롤러 서버 미연결'}
+                    </div>
+                    <div className="text-[11px] opacity-80 mt-0.5">
+                      {crawlerStatus === 'connected'
+                        ? '파이썬 브라우저 제어 서버(Port 5000)가 정상 응답하고 있습니다.'
+                        : '로컬 PC에서 크롤러 실행 파일(.bat)을 구동해주세요.'}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isTestingConnection}
+                  onClick={async () => {
+                    setIsTestingConnection(true);
+                    await checkCrawlerHealth();
+                    setIsTestingConnection(false);
+                  }}
+                  className="bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 px-2.5 py-1.5 rounded-lg font-bold shrink-0 flex items-center gap-1 shadow-sm transition-all"
+                >
+                  <RefreshCw size={12} className={isTestingConnection ? 'animate-spin' : ''} />
+                  <span>{isTestingConnection ? '확인 중' : '재확인'}</span>
+                </button>
+              </div>
+
+              {/* 3-Step Simple Guide */}
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-2.5">
+                <div className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
+                  <span>💡</span>
+                  <span>로컬 크롤러 3초 구동 방법</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-2 text-gray-600 leading-relaxed font-medium">
+                  <li className="pl-1">
+                    <span className="font-semibold text-gray-800">1단계:</span> 아래 <strong>[크롤러 실행기 다운로드]</strong> 버튼을 클릭하여 <code className="bg-gray-200 text-gray-800 px-1 py-0.5 rounded">run_crawler_agent.bat</code> 파일을 다운로드합니다.
+                  </li>
+                  <li className="pl-1">
+                    <span className="font-semibold text-gray-800">2단계:</span> 다운로드 폴더에서 <strong>run_crawler_agent.bat</strong>을 더블 클릭하여 실행합니다. (파이썬 및 브라우저 환경 자동 점검)
+                  </li>
+                  <li className="pl-1">
+                    <span className="font-semibold text-gray-800">3단계:</span> 검은색 터미널 창이 뜨면 상단의 <strong>[재확인]</strong>을 눌러 초록색 불이 들어온 후 웹 실측을 진행하시면 됩니다!
+                  </li>
+                </ol>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadCrawlerScript}
+                    className="w-full bg-amber-500 hover:bg-amber-600 active:scale-98 text-white font-bold py-2.5 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 text-sm transition-all"
+                  >
+                    <Download size={16} />
+                    <span>로컬 크롤러 실행기 다운로드 (run_crawler_agent.bat)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Advanced Settings */}
+              <div className="border-t pt-3 space-y-2">
+                <div className="font-bold text-gray-800 flex items-center justify-between">
+                  <span>⚙️ API 엔드포인트 URL 설정</span>
+                  <button
+                    type="button"
+                    onClick={() => setTempApiUrl('http://127.0.0.1:5000')}
+                    className="text-[11px] text-emerald-700 hover:underline"
+                  >
+                    기본값(127.0.0.1:5000)으로 복원
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tempApiUrl}
+                    onChange={(e) => setTempApiUrl(e.target.value)}
+                    placeholder="http://127.0.0.1:5000 또는 https://xxx.trycloudflare.com"
+                    className="flex-1 border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-emerald-600 font-mono"
+                  />
+                  <button
+                    type="button"
+                    disabled={isTestingConnection}
+                    onClick={async () => {
+                      setIsTestingConnection(true);
+                      const clean = tempApiUrl.trim().replace(/\/+$/, '');
+                      localStorage.setItem('lua_crawler_api_url', clean);
+                      setCrawlerApiUrl(clean);
+                      const ok = await checkCrawlerHealth(clean);
+                      setIsTestingConnection(false);
+                      if (ok) {
+                        alert(`✅ 크롤러 API 연결 성공!\n(${clean})`);
+                      } else {
+                        alert(`❌ 연결 실패: ${clean} 에서 응답이 없습니다.\n로컬에서 run_crawler_agent.bat 이 구동 중인지 확인해주세요.`);
+                      }
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                  >
+                    저장 및 테스트
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-400">
+                  ※ 로컬 PC에서 Cloudflare Tunnel을 사용할 경우 터널링 HTTPS 주소를 입력하시면 완벽하게 연결됩니다.
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-gray-50 px-5 py-3 border-t flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowCrawlerModal(false)}
+                className="bg-gray-800 hover:bg-gray-900 text-white font-bold px-4 py-1.5 rounded-lg text-xs transition-colors"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
