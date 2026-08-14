@@ -53,85 +53,83 @@ PLATFORM_URL_TEMPLATES = {
     "claude": "https://claude.ai/new",
 }
 
+# 활성화된 브라우저 및 취소 플래그 관리
+active_browsers = set()
+stop_requested = False
+window_offset_counter = 0
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "ok", "time": time.time()})
+
+@app.route('/api/close_all', methods=['POST', 'GET'])
+def close_all_browsers():
+    global active_browsers, stop_requested
+    stop_requested = True
+    closed_count = 0
+    print("\n[LUA AI] 🛑 전체 내장 창 일괄 닫기 및 크롤링 중단 요청 수신")
+    
+    for b in list(active_browsers):
+        try:
+            b.close()
+            closed_count += 1
+        except Exception:
+            pass
+    active_browsers.clear()
+    
+    print(f"[LUA AI] {closed_count}개 브라우저 창 닫기 완료.")
+    time.sleep(0.3)
+    stop_requested = False
+    
+    return jsonify({
+        "success": True, 
+        "message": f"모든 브라우저 창({closed_count}개)이 성공적으로 닫혔습니다."
+    })
+
 def inject_and_submit_query(page, plat_key: str, query: str):
-    """
-    URL 파라미터 지원이 안 되거나 입력창 입력이 필요한 플랫폼(Gemini, Claude 등)에 질문을 자동으로 입력하고 전송합니다.
-    """
-    if "gemini" in plat_key:
-        print(f"[LUA AI - Gemini] 입력창 탐색 및 질문 전송 시도: {query}")
-        gemini_selectors = [
-            'div[contenteditable="true"]',
-            'rich-textarea div[contenteditable="true"]',
-            'div[role="textbox"]',
-            'div[aria-label*="프롬프트"]',
-            'div[aria-label*="Gemini"]',
-            'div[aria-label*="Prompt"]',
-            'textarea',
-            '.ql-editor'
-        ]
-        
-        input_elem = None
-        for sel in gemini_selectors:
-            try:
-                elem = page.wait_for_selector(sel, timeout=4000)
-                if elem and elem.is_visible():
-                    input_elem = elem
-                    print(f"[LUA AI - Gemini] 입력창 발견: {sel}")
-                    break
-            except Exception:
-                continue
-                
-        if input_elem:
-            try:
+    try:
+        if "gemini" in plat_key:
+            print(f"[LUA AI - Gemini] 질문 입력 시도: {query}")
+            gemini_selectors = [
+                'div[contenteditable="true"]',
+                'rich-textarea div[contenteditable="true"]',
+                'div[role="textbox"]',
+                'div[aria-label*="프롬프트"]',
+                'div[aria-label*="Gemini"]',
+                'textarea'
+            ]
+            
+            input_elem = None
+            for sel in gemini_selectors:
+                try:
+                    elem = page.wait_for_selector(sel, timeout=2500)
+                    if elem and elem.is_visible():
+                        input_elem = elem
+                        break
+                except Exception:
+                    continue
+                    
+            if input_elem:
                 input_elem.click()
+                time.sleep(0.2)
+                page.keyboard.type(query, delay=10)
                 time.sleep(0.3)
-                # contenteditable 요소는 keyboard.type이 가장 정확함
-                page.keyboard.type(query, delay=15)
-                time.sleep(0.5)
                 page.keyboard.press("Enter")
                 print("[LUA AI - Gemini] Enter 키 전송 완료")
-            except Exception as e:
-                print(f"[LUA AI - Gemini] 키보드 타이핑 예외: {e}")
-                
-            # 전송 버튼 클릭 Fallback
-            try:
-                time.sleep(0.5)
-                send_btn = page.query_selector('button[aria-label*="보내기"], button[aria-label*="Send"], button.send-button, mat-icon[fonticon="send"]')
-                if send_btn and send_btn.is_visible():
-                    send_btn.click()
-                    print("[LUA AI - Gemini] 전송 버튼 클릭 완료")
-            except Exception:
-                pass
-        else:
-            print("[LUA AI - Gemini] ⚠ 입력창을 찾지 못해 클릭 후 키보드 타이핑을 시도합니다.")
-            try:
+            else:
                 page.mouse.click(500, 400)
-                page.keyboard.type(query, delay=15)
+                page.keyboard.type(query, delay=10)
                 page.keyboard.press("Enter")
-            except Exception as e:
-                print(f"[LUA AI - Gemini] 마우스 클릭 타이핑 실패: {e}")
 
-    elif "claude" in plat_key:
-        print(f"[LUA AI - Claude] 입력창 탐색 및 질문 전송 시도: {query}")
-        claude_selectors = [
-            'div[contenteditable="true"]',
-            'fieldset div[contenteditable="true"]',
-            'div[role="textbox"]',
-            'textarea'
-        ]
-        for sel in claude_selectors:
-            try:
-                elem = page.wait_for_selector(sel, timeout=4000)
-                if elem and elem.is_visible():
-                    elem.click()
-                    time.sleep(0.3)
-                    page.keyboard.type(query, delay=15)
-                    time.sleep(0.5)
-                    page.keyboard.press("Enter")
-                    print(f"[LUA AI - Claude] 질문 전송 완료: {sel}")
-                    break
-            except Exception:
-                continue
+        elif "claude" in plat_key:
+            print(f"[LUA AI - Claude] 질문 입력 시도: {query}")
+            elem = page.wait_for_selector('div[contenteditable="true"]', timeout=3000)
+            if elem:
+                elem.click()
+                page.keyboard.type(query, delay=10)
+                page.keyboard.press("Enter")
+    except Exception as e:
+        print(f"[LUA AI] 질문 입력 중 예외 (무시하고 계속 진행): {e}")
 
 def extract_clean_ai_response(page, platform: str) -> str:
     plat_key = platform.lower()
@@ -141,12 +139,11 @@ def extract_clean_ai_response(page, platform: str) -> str:
         selectors = ['div[data-message-author-role="assistant"]', 'main article:last-of-type .markdown', 'article']
     elif "gemini" in plat_key:
         selectors = [
+            '.response-container-content',
             'message-content:last-of-type',
             'message-content',
             '.model-response-text',
-            '.response-container-content',
-            'div[class*="model-response"]',
-            'div[class*="response-container"]'
+            'div[class*="model-response"]'
         ]
     elif "perplexity" in plat_key:
         selectors = ['div[data-testid="search-response"]:last-of-type', '.prose', '.answer-content', 'div.break-words']
@@ -197,43 +194,13 @@ def extract_clean_ai_response(page, platform: str) -> str:
             
     return "\n".join(clean_lines).strip()
 
-# 활성화된 브라우저 및 취소 플래그 관리
-active_browsers = set()
-stop_requested = False
-
-@app.route('/api/close_all', methods=['POST', 'GET'])
-def close_all_browsers():
-    global active_browsers, stop_requested
-    stop_requested = True
-    closed_count = 0
-    print("\n[LUA AI] 🛑 전체 내장 창 일괄 닫기 및 크롤링 중단 요청 수신")
-    
-    # 1. 활성화된 모든 Playwright 브라우저 종료
-    for b in list(active_browsers):
-        try:
-            b.close()
-            closed_count += 1
-        except Exception:
-            pass
-    active_browsers.clear()
-    
-    # 2. 크롬/크로미움 잔여 프로세스 정리 (선택적)
-    print(f"[LUA AI] {closed_count}개 브라우저 창 닫기 완료.")
-    time.sleep(0.5)
-    stop_requested = False
-    
-    return jsonify({
-        "success": True, 
-        "message": f"모든 브라우저 창({closed_count}개)이 성공적으로 닫혔습니다."
-    })
-
 @app.route('/api/verify', methods=['POST'])
 def verify_platform():
     global window_offset_counter, active_browsers, stop_requested
     if stop_requested:
         return jsonify({"error": "Stopped by user", "raw_text": ""}), 400
         
-    data = request.json
+    data = request.json or {}
     platform = data.get('platform', 'ChatGPT')
     query = data.get('query', '')
     
@@ -249,7 +216,6 @@ def verify_platform():
     browser = None
     try:
         with sync_playwright() as p:
-            # 창 우측 계단식 배치 계산
             base_x = 900
             base_y = 50
             step = 35
@@ -267,30 +233,29 @@ def verify_platform():
             
             context = browser.new_context(viewport={"width": 1000, "height": 800})
             page = context.new_page()
+            page.set_default_timeout(25000)
             
-            page.goto(url)
-            page.wait_for_load_state("domcontentloaded")
+            page.goto(url, wait_until="domcontentloaded", timeout=25000)
             
             if stop_requested:
                 if browser: browser.close()
                 return jsonify({"error": "Stopped by user", "raw_text": ""}), 400
             
-            # Gemini 또는 Claude처럼 페이지 로드 후 직접 입력이 필요한 경우 처리
+            # Gemini / Claude 질문 주입
             if "gemini" in plat_key or "claude" in plat_key:
-                time.sleep(2.5)
+                time.sleep(2)
                 if not stop_requested:
                     inject_and_submit_query(page, plat_key, query)
             
-            # 렌더링 완료 대기 로직 (최대 45초 대기)
+            # 렌더링 완료 대기 (최대 25초)
             start_time = time.time()
-            max_timeout = 45
+            max_timeout = 25
             stable_count = 0
             last_text = ""
             
-            if "gemini" in plat_key: time.sleep(6)
-            elif "perplexity" in plat_key: time.sleep(5)
-            elif "chatgpt" in plat_key: time.sleep(5)
-            elif "naver" in plat_key: time.sleep(3)
+            if "gemini" in plat_key: time.sleep(5)
+            elif "perplexity" in plat_key: time.sleep(4)
+            elif "chatgpt" in plat_key: time.sleep(4)
             else: time.sleep(3)
             
             extracted_text = ""
@@ -310,7 +275,7 @@ def verify_platform():
                 if not is_streaming:
                     if curr_text == last_text:
                         stable_count += 1
-                        if stable_count >= 5: # 5번(약 2.5초) 동일하면 완료 간주
+                        if stable_count >= 4: # 약 2초 동일하면 완료
                             extracted_text = curr_text
                             break
                     else:
@@ -338,4 +303,4 @@ def verify_platform():
 
 if __name__ == '__main__':
     print("[LUA AI] 내장 뷰어 크롤링용 로컬 API 서버 구동 완료 (Port: 5000)")
-    app.run(host='127.0.0.1', port=5000, debug=False)
+    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)

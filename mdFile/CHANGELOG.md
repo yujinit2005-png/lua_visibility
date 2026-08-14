@@ -1,4 +1,14 @@
-# CHANGELOG (업데이트 이력)
+## [v1.0.5] - 2026-08-14
+
+### ✨ 신규 추가 및 고도화 (Enhancements & New Features)
+- **웹 UI 실측 크롤링 제어 및 일괄 닫기 기능 (`api_server.py`, `WebVerificationModal.tsx`)**:
+  - `[❌ 전체 내장 창 일괄 닫기]` 및 모달 `[닫기]` 시 백엔드 `/api/close_all` API 호출로 열려 있는 모든 Playwright Chromium 브라우저 창 강제 종료.
+  - 7초 주기 순차 자동 실측 루프 중 즉각 취소 플래그(`autoCrawlCancelledRef`, `stop_requested`) 반영으로 리소스 누수 원천 차단.
+- **네이버 AI 가시성 진단 데이터 전략 수립 (`naver 활용방안.md`, `mdFile/naver 활용방안.md`)**:
+  - 네이버 API Hub(스마트플레이스 순위)와 웹 UI 크롤링(통합검색 블로그/바이럴 노출) 간 결과 차이 정밀 분석.
+  - 병원 컨설팅을 위한 하이브리드 교차 지표화 및 실측 증빙 리포트 활용 가이드 문서화.
+- **개발 환경 최적화 (`.vscode/settings.json`)**:
+  - 파이썬 인터프리터 기본 실행 환경 자동 구성.
 
 ## [v1.0.4] - 2026-08-14
 
@@ -27,3 +37,4 @@
   - `API검색결과 / 메모` 컬럼 폭 1.5배 확장.
 - **GitHub Push Protection 보안 준수**:
   - 소스 코드 내 하드코딩된 API Key 제거 및 안전한 환경변수 참조 처리.
+

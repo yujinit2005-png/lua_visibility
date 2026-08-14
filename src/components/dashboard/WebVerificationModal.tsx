@@ -386,7 +386,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
   }, [isOpen, currentRunId, fetchVerificationData]);
 
   // ── 내장 뷰어 실측 (파이썬 팝업 크롤링 API 연동) ────────────────────────
-  const handleOpenViewer = async (row: WebAnswerRow) => {
+  const handleOpenViewer = async (row: WebAnswerRow, isSilent: boolean = false) => {
     // 로딩 상태 시작
     setRows(prev => prev.map(r => 
       (r.platform === row.platform && r.query === row.query) 
@@ -401,7 +401,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
         body: JSON.stringify({ platform: row.platform, query: row.query }),
       });
 
-      if (!res.ok) throw new Error('API 서버 응답 오류');
+      if (!res.ok) throw new Error(`API 서버 오류 (${res.status})`);
       const data = await res.json();
       
       const crawledText = data.raw_text || '[크롤링 결과 없음]';
@@ -423,10 +423,13 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
       console.error(e);
       setRows(prev => prev.map(r => 
         (r.platform === row.platform && r.query === row.query) 
-          ? { ...r, isLoading: false, web_raw_text: `❌ 크롤링 실패 (파이썬 API 서버 확인 필요): ${e.message}` } 
+          ? { ...r, isLoading: false, web_raw_text: `❌ 크롤링 실패 (파이썬 API 서버 미실행/타임아웃): ${e.message}` } 
           : r
       ));
-      alert('크롤링 API 서버 연결 실패! 백그라운드에서 API 서버가 구동 중인지 확인해주세요.');
+      if (!isSilent) {
+        alert('크롤링 API 서버(Port 5000) 연결 실패!\nstart_app.bat을 실행하거나 백그라운드에서 python src/services/api_server.py가 구동 중인지 확인해주세요.');
+      }
+      throw e;
     }
   };
 
@@ -518,6 +521,15 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
     autoCrawlCancelledRef.current = false;
     setIsAutoCrawling(true);
     try {
+      // 1. 사전 헬스체크: 서버가 살아있는지 먼저 확인
+      try {
+        const healthRes = await fetch('http://127.0.0.1:5000/api/health', { signal: AbortSignal.timeout(2000) });
+        if (!healthRes.ok) throw new Error();
+      } catch {
+        alert('❌ 크롤링 API 서버(Port 5000)가 구동 중이지 않습니다!\n\nstart_app.bat을 다시 실행하거나 터미널에서\npython src/services/api_server.py 를 실행해주세요.');
+        return;
+      }
+
       for (let i = 0; i < filteredRows.length; i++) {
         if (autoCrawlCancelledRef.current || !isOpen) {
           console.log('[LUA AI] 사용자에 의해 전체 자동 실측이 중단되었습니다.');
@@ -525,8 +537,10 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
         }
         const row = filteredRows[i];
         
-        // 개별 실측 실행
-        handleOpenViewer(row).catch(console.error);
+        // 개별 실측 실행 (isSilent=true)
+        handleOpenViewer(row, true).catch((e) => {
+          console.warn('[LUA AI] 개별 실측 예외:', e);
+        });
         
         // 다음 창을 띄우기 전 7초 대기 (1초 단위로 취소 여부 체크)
         if (i < filteredRows.length - 1) {
