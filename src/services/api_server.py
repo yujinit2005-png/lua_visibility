@@ -197,11 +197,42 @@ def extract_clean_ai_response(page, platform: str) -> str:
             
     return "\n".join(clean_lines).strip()
 
-window_offset_counter = 0
+# 활성화된 브라우저 및 취소 플래그 관리
+active_browsers = set()
+stop_requested = False
+
+@app.route('/api/close_all', methods=['POST', 'GET'])
+def close_all_browsers():
+    global active_browsers, stop_requested
+    stop_requested = True
+    closed_count = 0
+    print("\n[LUA AI] 🛑 전체 내장 창 일괄 닫기 및 크롤링 중단 요청 수신")
+    
+    # 1. 활성화된 모든 Playwright 브라우저 종료
+    for b in list(active_browsers):
+        try:
+            b.close()
+            closed_count += 1
+        except Exception:
+            pass
+    active_browsers.clear()
+    
+    # 2. 크롬/크로미움 잔여 프로세스 정리 (선택적)
+    print(f"[LUA AI] {closed_count}개 브라우저 창 닫기 완료.")
+    time.sleep(0.5)
+    stop_requested = False
+    
+    return jsonify({
+        "success": True, 
+        "message": f"모든 브라우저 창({closed_count}개)이 성공적으로 닫혔습니다."
+    })
 
 @app.route('/api/verify', methods=['POST'])
 def verify_platform():
-    global window_offset_counter
+    global window_offset_counter, active_browsers, stop_requested
+    if stop_requested:
+        return jsonify({"error": "Stopped by user", "raw_text": ""}), 400
+        
     data = request.json
     platform = data.get('platform', 'ChatGPT')
     query = data.get('query', '')
@@ -215,6 +246,7 @@ def verify_platform():
     
     print(f"\n[LUA AI] 크롤링 시작: {platform} - {query}")
     
+    browser = None
     try:
         with sync_playwright() as p:
             # 창 우측 계단식 배치 계산
@@ -231,16 +263,23 @@ def verify_platform():
                 f"--window-position={pos_x},{pos_y}", 
                 "--window-size=1000,800"
             ])
+            active_browsers.add(browser)
+            
             context = browser.new_context(viewport={"width": 1000, "height": 800})
             page = context.new_page()
             
             page.goto(url)
             page.wait_for_load_state("domcontentloaded")
             
+            if stop_requested:
+                if browser: browser.close()
+                return jsonify({"error": "Stopped by user", "raw_text": ""}), 400
+            
             # Gemini 또는 Claude처럼 페이지 로드 후 직접 입력이 필요한 경우 처리
             if "gemini" in plat_key or "claude" in plat_key:
                 time.sleep(2.5)
-                inject_and_submit_query(page, plat_key, query)
+                if not stop_requested:
+                    inject_and_submit_query(page, plat_key, query)
             
             # 렌더링 완료 대기 로직 (최대 45초 대기)
             start_time = time.time()
@@ -257,6 +296,9 @@ def verify_platform():
             extracted_text = ""
             
             while (time.time() - start_time) < max_timeout:
+                if stop_requested:
+                    break
+                    
                 curr_text = extract_clean_ai_response(page, plat_key)
                 
                 is_streaming = False
@@ -281,11 +323,16 @@ def verify_platform():
                 extracted_text = last_text if last_text else extract_clean_ai_response(page, plat_key)
             
             print(f"[LUA AI] 크롤링 완료 (길이: {len(extracted_text)})")
+            if browser in active_browsers:
+                active_browsers.remove(browser)
             browser.close()
             
             return jsonify({"success": True, "raw_text": extracted_text})
             
     except Exception as e:
+        if browser and browser in active_browsers:
+            try: active_browsers.remove(browser)
+            except Exception: pass
         traceback.print_exc()
         return jsonify({"error": str(e), "raw_text": ""}), 500
 

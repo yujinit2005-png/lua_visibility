@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import IframeModal from './IframeModal';
 
@@ -124,6 +124,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoCrawling, setIsAutoCrawling] = useState(false);
+  const autoCrawlCancelledRef = useRef<boolean>(false);
   const [activeIframeUrl, setActiveIframeUrl] = useState<string | null>(null);
   const [activeIframeTitle] = useState('');
   const [isExpandedAll, setIsExpandedAll] = useState(false);
@@ -494,26 +495,50 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
     }
   };
 
+  // ── 전체 내장 창 일괄 닫기 & 크롤링 중단 ─────────────────────────────────
+  const handleCloseAllAndStop = async () => {
+    // 1. 자동 실측 루프 즉시 취소 플래그 설정
+    autoCrawlCancelledRef.current = true;
+    setIsAutoCrawling(false);
+    setActiveIframeUrl(null);
+
+    // 2. 파이썬 크롤링 백엔드에 모든 활성 브라우저 창 종료 요청
+    try {
+      await fetch('http://127.0.0.1:5000/api/close_all', { method: 'POST' });
+    } catch (e) {
+      console.warn('close_all API 호출 경고:', e);
+    }
+  };
+
   // ── 전체 자동 실측 (7초 간격 병렬) ──────────────────────────────────────────────────
   const handleAutoCrawl = async () => {
     if (filteredRows.length === 0) return alert('실측할 데이터가 없습니다.');
     if (!window.confirm(`총 ${filteredRows.length}개의 질문을 자동 실측합니다.\n(각 브라우저 창이 7초 간격으로 순차적으로 띄워집니다.)\n진행하시겠습니까?`)) return;
 
+    autoCrawlCancelledRef.current = false;
     setIsAutoCrawling(true);
     try {
       for (let i = 0; i < filteredRows.length; i++) {
+        if (autoCrawlCancelledRef.current || !isOpen) {
+          console.log('[LUA AI] 사용자에 의해 전체 자동 실측이 중단되었습니다.');
+          break;
+        }
         const row = filteredRows[i];
-        if (!isOpen) break; // 모달이 닫히면 중단
         
-        // 개별 실측 실행 (await 없이 던져서 브라우저가 열리게 함)
+        // 개별 실측 실행
         handleOpenViewer(row).catch(console.error);
         
-        // 다음 창을 띄우기 전 정확히 7초 대기
+        // 다음 창을 띄우기 전 7초 대기 (1초 단위로 취소 여부 체크)
         if (i < filteredRows.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 7000));
+          for (let s = 0; s < 7; s++) {
+            if (autoCrawlCancelledRef.current || !isOpen) break;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
         }
       }
-      alert('✅ 전체 질문 실측 명령 전송 완료!\n각 창에서 크롤링이 완료될 때까지 잠시만 기다려주세요.');
+      if (!autoCrawlCancelledRef.current && isOpen) {
+        alert('✅ 전체 질문 실측 명령 전송 완료!\n각 창에서 크롤링이 완료될 때까지 잠시만 기다려주세요.');
+      }
     } catch (e) {
       console.error(e);
       alert('자동 실측 중 오류가 발생했습니다.');
@@ -555,7 +580,13 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
                 )}
               </div>
             </div>
-            <button onClick={onClose} className="text-white hover:text-gray-200 text-2xl font-bold">
+            <button 
+              onClick={() => {
+                handleCloseAllAndStop();
+                onClose();
+              }} 
+              className="text-white hover:text-gray-200 text-2xl font-bold p-1 rounded transition-colors"
+            >
               &times;
             </button>
           </div>
@@ -656,10 +687,20 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
 
             {/* 오른쪽 상단: 전체 내장 창 일괄 닫기 + 닫기 버튼 */}
             <div className="flex items-center gap-2 ml-auto">
-              <button onClick={() => setActiveIframeUrl(null)} className="bg-red-600 hover:bg-red-700 text-white font-bold px-3.5 py-1.5 rounded flex items-center gap-1 shadow-sm">
+              <button 
+                onClick={handleCloseAllAndStop} 
+                className="bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold px-3.5 py-1.5 rounded flex items-center gap-1 shadow-sm transition-all"
+                title="진행 중인 크롤링을 즉시 중단하고 모든 브라우저 창을 닫습니다"
+              >
                 <span>❌</span> 전체 내장 창 일괄 닫기
               </button>
-              <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white font-bold px-4 py-1.5 rounded flex items-center gap-1 shadow-sm transition-colors">
+              <button 
+                onClick={() => {
+                  handleCloseAllAndStop();
+                  onClose();
+                }} 
+                className="bg-gray-600 hover:bg-gray-700 active:scale-95 text-white font-bold px-4 py-1.5 rounded flex items-center gap-1 shadow-sm transition-colors"
+              >
                 닫기
               </button>
             </div>
