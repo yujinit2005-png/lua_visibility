@@ -416,85 +416,111 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
 
   const words = cleaned.split(' ').filter(w => w.length >= 2);
 
-  const hospitalTypes = ['한방병원', '한의원', '요양병원', '종합병원', '정형외과', '내과의원', '내과', '치과의원', '치과', '안과의원', '안과', '피부과의원', '피부과', '병원', '의원'];
+  const hospitalTypes = ['한방병원', '한의원', '요양병원', '종합병원', '정형외과', '신장내과', '내과의원', '내과', '치과의원', '치과', '안과의원', '안과', '피부과의원', '피부과', '병원', '의원'];
   const diseaseKeywords = ['허리디스크', '목디스크', '척추관절', '척추', '관절', '도수치료', '추나요법', '교통사고', '신장질환', '신장내과', '인공신장실', '투석'];
+
+  const diseaseToDeptMap: Record<string, string> = {
+    '신장질환': '신장내과',
+    '투석': '인공신장실',
+    '인공신장실': '인공신장실',
+    '허리디스크': '정형외과',
+    '목디스크': '정형외과',
+    '척추관절': '정형외과'
+  };
 
   const foundHospType = hospitalTypes.find(t => prompt.includes(t)) || '';
   const foundDiseases = diseaseKeywords.filter(d => prompt.includes(d));
   const regionCandidates = words.filter(w => !hospitalTypes.some(t => w.includes(t)) && !diseaseKeywords.some(d => w.includes(d) || d.includes(w)));
 
-  let parts: string[] = [];
+  let region = regionCandidates.length > 0 ? regionCandidates[0] : '';
+  if (regionCandidates.length > 1 && (regionCandidates[1].endsWith('동') || regionCandidates[1].endsWith('구'))) {
+    region += ' ' + regionCandidates[1];
+  }
 
-  // 1. 지역명 (시 + 동/구)
-  if (regionCandidates.length > 0) {
-    parts.push(regionCandidates[0]);
-    if (regionCandidates.length > 1 && (regionCandidates[1].endsWith('동') || regionCandidates[1].endsWith('구'))) {
-      parts.push(regionCandidates[1]);
+  // 검색 키워드 후보 생성 (자연어 매핑 및 순차 시도)
+  const candidateKeywords: string[] = [];
+  if (foundDiseases.length > 0) {
+    for (const d of foundDiseases) {
+      if (diseaseToDeptMap[d]) candidateKeywords.push(`${region} ${diseaseToDeptMap[d]}`.trim());
+      candidateKeywords.push(`${region} ${d}`.trim());
     }
   }
-
-  // 2. 질환명
-  if (foundDiseases.length > 0) {
-    parts.push(foundDiseases[0]);
+  if (foundHospType) {
+    candidateKeywords.push(`${region} ${foundHospType}`.trim());
+  } else {
+    candidateKeywords.push(`${region} 병원`.trim());
   }
 
-  // 3. 병원 유형 (한방병원, 내과 등 필수 포함)
-  if (foundHospType && !parts.some(p => p.includes(foundHospType))) {
-    parts.push(foundHospType);
-  } else if (!foundHospType && !parts.some(p => p.includes('병원') || p.includes('의원') || p.includes('내과'))) {
-    parts.push('병원');
-  }
+  const uniqueCandidates = Array.from(new Set(candidateKeywords)).filter(Boolean);
+  if (uniqueCandidates.length === 0) uniqueCandidates.push(cleaned || prompt);
 
-  let searchKeyword = Array.from(new Set(parts)).join(' ').trim() || cleaned || prompt;
-
+  // 순수 네이버 공식 검색 API 호출 함수
   const fetchNaverSearch = async (kw: string) => {
     const queryParam = `?query=${encodeURIComponent(kw)}&display=20&start=1&sort=random`;
-    const urls = [
+    const targets = [
       `/api-naver/search/v1/local${queryParam}`,
       `https://naverapihub.apigw.ntruss.com/search/v1/local${queryParam}`
     ];
-    let res: Response | null = null;
+
     let lastErr = '';
-    for (const u of urls) {
+    for (const targetUrl of targets) {
       try {
-        res = await fetch(u, {
+        const res = await fetch(targetUrl, {
           method: 'GET',
           headers: {
             'X-NCP-APIGW-API-KEY-ID': clientId,
             'X-NCP-APIGW-API-KEY': clientSecret
           }
         });
-        if (res.ok) break;
+
+        if (!res.ok) {
+          const t = await res.text().catch(() => '');
+          lastErr = `HTTP ${res.status}: ${t.substring(0, 200)}`;
+          continue;
+        }
+
+        const rawText = await res.text();
+        // HTML 문서(index.html 등 프록시 미지원 환경) 응답 감지
+        if (rawText.trim().startsWith('<')) {
+          lastErr = `HTML page returned from ${targetUrl}`;
+          continue;
+        }
+
+        const parsed = JSON.parse(rawText);
+        return { data: parsed, lastErr: '' };
       } catch (e: any) {
-        lastErr = e.message;
+        lastErr = e.message || String(e);
       }
     }
-    return { res, lastErr };
+    return { data: null, lastErr };
   };
 
-  let actualSearchKeyword = searchKeyword;
-  let { res: response, lastErr: lastErrStr } = await fetchNaverSearch(searchKeyword);
+  let actualSearchKeyword = uniqueCandidates[0];
+  let items: any[] = [];
+  let totalCount = 0;
+  let lastErrorMsg = '';
 
-  if (!response || !response.ok) {
-    const errText = response ? await response.text() : lastErrStr;
-    throw new Error(`Naver Local Search Error (${response ? response.status : 'Network Error'}): ${errText}`);
+  // 1차 후보부터 순차적으로 API 호출하여 검색 결과(items)가 있는 것을 채택
+  for (const candKw of uniqueCandidates) {
+    const { data, lastErr } = await fetchNaverSearch(candKw);
+    if (data && data.items && data.items.length > 0) {
+      items = data.items;
+      totalCount = data.total || items.length;
+      actualSearchKeyword = candKw;
+      break;
+    } else if (data) {
+      lastErrorMsg = lastErr;
+    }
   }
 
-  let data = await response.json();
-  let items: any[] = data.items || [];
-
-  // 검색 결과가 0건일 경우, [지역 + 병원유형] (예: '청주 한방병원', '용인 내과')으로 2차 재검색 시도
-  if (items.length === 0 && regionCandidates.length > 0 && (foundHospType || '병원')) {
-    const fallbackKw = `${regionCandidates[0]} ${foundHospType || '병원'}`;
-    if (fallbackKw !== searchKeyword) {
-      const fallbackRes = await fetchNaverSearch(fallbackKw);
-      if (fallbackRes.res && fallbackRes.res.ok) {
-        const fallbackData = await fallbackRes.res.json();
-        if (fallbackData.items && fallbackData.items.length > 0) {
-          items = fallbackData.items;
-          actualSearchKeyword = `${searchKeyword} ➔ [재검색] ${fallbackKw}`;
-        }
-      }
+  // 만약 모든 후보에서 결과가 0건이면 첫 번째 후보 결과 데이터 유지
+  if (items.length === 0) {
+    const { data, lastErr } = await fetchNaverSearch(uniqueCandidates[0]);
+    if (data) {
+      items = data.items || [];
+      totalCount = data.total || 0;
+    } else {
+      throw new Error(`Naver Local Search Error: ${lastErr || lastErrorMsg || 'API 호출에 실패했습니다.'}`);
     }
   }
 
@@ -524,7 +550,7 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
   const resultHeader = `네이버 지역검색(NAVER API HUB) 실측 결과입니다.
 📌 원문 질문: ${prompt}
 🔍 실제 검색 쿼리: '${actualSearchKeyword}'
-📊 총 검색 결과: ${data.total || items.length}건 중 상위 ${items.length}건`;
+📊 총 검색 결과: ${totalCount || items.length}건 중 상위 ${items.length}건`;
 
   return {
     text: `${resultHeader}\n\n${formattedItems || '(검색된 지역 병원 데이터가 없습니다.)'}`,

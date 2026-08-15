@@ -84,11 +84,12 @@ export const analyzeAnswer = (
     });
   }
 
-  // 3) 추천 판정 (휴리스틱): 언급되었고 추천 신호어가 있거나 목록/번호 형태인 경우
+  // 3) 추천 판정 (휴리스틱): 언급되었고 추천 신호어가 있거나 목록/번호/플레이스 검색 형태인 경우
   if (result.mentioned) {
     const hasCue = RECOMMEND_CUES.some(cue => answerText.includes(cue));
-    const inList = /(^|\n)\s*(\d+[.)]|[-*•])\s/.test(answerText);
-    result.recommended = hasCue || inList;
+    const inList = /(^|\n)\s*(\[\d+\]|\d+[.)]|[-*•])\s*/.test(answerText);
+    const isNaverLocal = answerText.includes('네이버 지역검색') || answerText.includes('NAVER API HUB');
+    result.recommended = hasCue || inList || isNaverLocal;
   }
 
   return result;
