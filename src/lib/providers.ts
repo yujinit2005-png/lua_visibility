@@ -421,22 +421,34 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
     '내과의원', '내과', '치과의원', '치과', '안과의원', '안과', '피부과의원', '피부과', '병원', '의원'
   ];
 
-  // 긴 복합 키워드부터 우선 매칭 (인공관절 수술 -> 인공관절 -> 관절 순)
+  // 긴 복합 키워드부터 우선 매칭 (무릎 로봇수술 -> 로봇수술 -> 인공관절 수술 -> 인공관절 -> 관절 순)
   const diseaseKeywords = [
-    '인공관절수술', '인공관절 수술', '인공관절', '관절경수술', '관절경', '관절수술', '퇴행성관절염', '관절염',
-    '척추관협착증', '척추협착증', '허리디스크', '목디스크', '척추관절', '척추', '관절', 
+    '무릎 로봇수술', '무릎로봇수술', '로봇인공관절수술', '로봇 인공관절 수술', '로봇인공관절', '로봇 인공관절', '로봇수술', '로봇 수술',
+    '인공관절수술', '인공관절 수술', '인공관절', '관절경수술', '관절경', '관절수술', '무릎수술', '무릎 수술', '퇴행성관절염', '관절염',
+    '척추관협착증', '척추협착증', '허리디스크', '목디스크', '척추관절', '척추', '무릎', '관절', 
     '도수치료', '추나요법', '교통사고', '오십견', '회전근개',
     '만성콩팥병', '신부전', '신장질환', '신장내과', '인공신장실', '인공신장센터', '혈액투석', '투석',
     '백내장', '라식', '라섹', '임플란트', '치아교정'
   ].sort((a, b) => b.length - a.length);
 
   const diseaseToDeptMap: Record<string, string> = {
+    '무릎 로봇수술': '정형외과',
+    '무릎로봇수술': '정형외과',
+    '로봇인공관절수술': '정형외과',
+    '로봇 인공관절 수술': '정형외과',
+    '로봇인공관절': '정형외과',
+    '로봇 인공관절': '정형외과',
+    '로봇수술': '정형외과',
+    '로봇 수술': '정형외과',
     '인공관절수술': '정형외과',
     '인공관절 수술': '정형외과',
     '인공관절': '정형외과',
     '관절경수술': '정형외과',
     '관절경': '정형외과',
     '관절수술': '정형외과',
+    '무릎수술': '정형외과',
+    '무릎 수술': '정형외과',
+    '무릎': '정형외과',
     '퇴행성관절염': '정형외과',
     '관절염': '정형외과',
     '척추관협착증': '정형외과',
@@ -486,17 +498,22 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
   const candidateKeywords: string[] = [];
   if (foundDiseases.length > 0) {
     for (const d of foundDiseases) {
-      // 1) [지역] [인공관절 수술] / [지역] [인공관절]
+      // 1) [지역] [무릎 로봇수술] / [지역] [인공관절 수술]
       candidateKeywords.push(`${region} ${d}`.trim());
-      // 2) [지역] [진료과목] (예: 다산신도시 정형외과)
+      if (region === '다산동') candidateKeywords.push(`다산 ${d}`.trim());
+
+      // 2) [지역] [진료과목] (예: 다산 정형외과, 다산동 정형외과)
       if (diseaseToDeptMap[d]) {
+        if (region === '다산동') candidateKeywords.push(`다산 ${diseaseToDeptMap[d]}`.trim());
         candidateKeywords.push(`${region} ${diseaseToDeptMap[d]}`.trim());
       }
     }
   }
   if (foundHospType) {
+    if (region === '다산동') candidateKeywords.push(`다산 ${foundHospType}`.trim());
     candidateKeywords.push(`${region} ${foundHospType}`.trim());
   } else {
+    if (region === '다산동') candidateKeywords.push(`다산 병원`.trim());
     candidateKeywords.push(`${region} 병원`.trim());
   }
 
