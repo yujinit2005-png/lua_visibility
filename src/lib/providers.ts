@@ -401,12 +401,12 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
   const clientId = config.clientId || import.meta.env.NCP_APIGW_API_KEY_ID || 'i8ciwrvzln';
   const clientSecret = config.clientSecret || import.meta.env.NCP_APIGW_API_KEY || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x';
 
-  // 1. 불용어 및 서술어/조사 정리
+  // 1. 불용어 및 서술어/조사 정리 (수술/치료 등 핵심 의학어는 보존)
   const cleaned = prompt
     .replace(/어디야\??|어디가\??|어디서\??|어디\??|알려줘|알려주세요|추천해줘|추천해주세요|추천\??|어떻게|어떤가요\??|될까요\??|있나요\??|할까요\??|있을까요\??|어떨까요\??/g, ' ')
     .replace(/우리|부모님|부모님이|아이|내가|가족|누가|누구|곳|여기|저기|이런/g, ' ')
     .replace(/가까운|편한|다니기|갈만한|모시고|받을 수 있는|받으려면|있는|많은|가장|잘하는|유명한|좋은|괜찮은|잘되어|잘되어있는|가능한|가능|알려진/g, ' ')
-    .replace(/전문의가|전문의|전문|진료하는|진료하|진료|치료하는|치료|수술하는|수술|비수술|함께|받을/g, ' ')
+    .replace(/전문의가|전문의|전문|진료하는|진료하|진료|치료하는|수술하는|함께|받을/g, ' ')
     .replace(/적정성 평가가|적정성 평가|적정성|평가가|평가|1등급/g, ' ')
     .replace(/근처|주변|인근/g, ' ')
     .replace(/에서|으로|까지|부터|은|는|이|가|을|를|의|와|과|에/g, ' ')
@@ -416,33 +416,82 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
 
   const words = cleaned.split(' ').filter(w => w.length >= 2);
 
-  const hospitalTypes = ['한방병원', '한의원', '요양병원', '종합병원', '정형외과', '신장내과', '내과의원', '내과', '치과의원', '치과', '안과의원', '안과', '피부과의원', '피부과', '병원', '의원'];
-  const diseaseKeywords = ['허리디스크', '목디스크', '척추관절', '척추', '관절', '도수치료', '추나요법', '교통사고', '신장질환', '신장내과', '인공신장실', '투석'];
+  const hospitalTypes = [
+    '한방병원', '한의원', '요양병원', '종합병원', '정형외과', '신장내과', 
+    '내과의원', '내과', '치과의원', '치과', '안과의원', '안과', '피부과의원', '피부과', '병원', '의원'
+  ];
+
+  // 긴 복합 키워드부터 우선 매칭 (인공관절 수술 -> 인공관절 -> 관절 순)
+  const diseaseKeywords = [
+    '인공관절수술', '인공관절 수술', '인공관절', '관절경수술', '관절경', '관절수술', '퇴행성관절염', '관절염',
+    '척추관협착증', '척추협착증', '허리디스크', '목디스크', '척추관절', '척추', '관절', 
+    '도수치료', '추나요법', '교통사고', '오십견', '회전근개',
+    '만성콩팥병', '신부전', '신장질환', '신장내과', '인공신장실', '인공신장센터', '혈액투석', '투석',
+    '백내장', '라식', '라섹', '임플란트', '치아교정'
+  ].sort((a, b) => b.length - a.length);
 
   const diseaseToDeptMap: Record<string, string> = {
-    '신장질환': '신장내과',
-    '투석': '인공신장실',
-    '인공신장실': '인공신장실',
+    '인공관절수술': '정형외과',
+    '인공관절 수술': '정형외과',
+    '인공관절': '정형외과',
+    '관절경수술': '정형외과',
+    '관절경': '정형외과',
+    '관절수술': '정형외과',
+    '퇴행성관절염': '정형외과',
+    '관절염': '정형외과',
+    '척추관협착증': '정형외과',
+    '척추협착증': '정형외과',
     '허리디스크': '정형외과',
     '목디스크': '정형외과',
-    '척추관절': '정형외과'
+    '척추관절': '정형외과',
+    '척추': '정형외과',
+    '관절': '정형외과',
+    '오십견': '정형외과',
+    '회전근개': '정형외과',
+    '신장질환': '신장내과',
+    '만성콩팥병': '신장내과',
+    '신부전': '신장내과',
+    '혈액투석': '인공신장실',
+    '투석': '인공신장실',
+    '인공신장실': '인공신장실',
+    '인공신장센터': '인공신장실',
+    '백내장': '안과',
+    '라식': '안과',
+    '라섹': '안과',
+    '임플란트': '치과',
+    '치아교정': '치과'
   };
 
   const foundHospType = hospitalTypes.find(t => prompt.includes(t)) || '';
-  const foundDiseases = diseaseKeywords.filter(d => prompt.includes(d));
-  const regionCandidates = words.filter(w => !hospitalTypes.some(t => w.includes(t)) && !diseaseKeywords.some(d => w.includes(d) || d.includes(w)));
+
+  // 질문에서 가장 긴 의학/질환 키워드 추출 (부분 중복 배제)
+  const foundDiseases: string[] = [];
+  for (const dk of diseaseKeywords) {
+    if (prompt.includes(dk) && !foundDiseases.some(fd => fd.includes(dk))) {
+      foundDiseases.push(dk);
+    }
+  }
+
+  const regionCandidates = words.filter(w => 
+    !hospitalTypes.some(t => w.includes(t)) && 
+    !diseaseKeywords.some(d => w.includes(d) || d.includes(w))
+  );
 
   let region = regionCandidates.length > 0 ? regionCandidates[0] : '';
-  if (regionCandidates.length > 1 && (regionCandidates[1].endsWith('동') || regionCandidates[1].endsWith('구'))) {
+  if (regionCandidates.length > 1 && (regionCandidates[1].endsWith('동') || regionCandidates[1].endsWith('구') || regionCandidates[1].endsWith('신도시') || regionCandidates[1].endsWith('시') || regionCandidates[1].endsWith('군'))) {
     region += ' ' + regionCandidates[1];
   }
 
-  // 검색 키워드 후보 생성 (자연어 매핑 및 순차 시도)
+  // 검색 키워드 후보 생성 (질환명/수술명 ➔ 진료과목 ➔ 병원유형 순서로 정밀 시도)
   const candidateKeywords: string[] = [];
   if (foundDiseases.length > 0) {
     for (const d of foundDiseases) {
-      if (diseaseToDeptMap[d]) candidateKeywords.push(`${region} ${diseaseToDeptMap[d]}`.trim());
+      // 1) [지역] [인공관절 수술] / [지역] [인공관절]
       candidateKeywords.push(`${region} ${d}`.trim());
+      // 2) [지역] [진료과목] (예: 다산신도시 정형외과)
+      if (diseaseToDeptMap[d]) {
+        candidateKeywords.push(`${region} ${diseaseToDeptMap[d]}`.trim());
+      }
     }
   }
   if (foundHospType) {
