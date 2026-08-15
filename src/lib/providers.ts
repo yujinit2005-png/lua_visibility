@@ -525,6 +525,7 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
     const queryParam = `?query=${encodeURIComponent(kw)}&display=20&start=1&sort=random`;
     const targets = [
       `/api-naver/search/v1/local${queryParam}`,
+      `http://127.0.0.1:5000/api/naver-search${queryParam}`,
       `https://naverapihub.apigw.ntruss.com/search/v1/local${queryParam}`
     ];
 

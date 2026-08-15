@@ -105,6 +105,36 @@ def close_all_browsers():
         "message": f"모든 브라우저 창({closed_count}개)이 성공적으로 닫혔습니다."
     })
 
+@app.route('/api/naver-search', methods=['GET', 'OPTIONS'])
+def naver_search_proxy():
+    if request.method == 'OPTIONS':
+        return '', 204
+    
+    query = request.args.get('query', '')
+    display = request.args.get('display', '20')
+    start = request.args.get('start', '1')
+    sort = request.args.get('sort', 'random')
+    
+    client_id = request.headers.get('X-NCP-APIGW-API-KEY-ID', os.environ.get('NCP_APIGW_API_KEY_ID', 'i8ciwrvzln'))
+    client_secret = request.headers.get('X-NCP-APIGW-API-KEY', os.environ.get('NCP_APIGW_API_KEY', '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x'))
+    
+    encoded_query = urllib.parse.quote(query)
+    target_url = f"https://naverapihub.apigw.ntruss.com/search/v1/local?query={encoded_query}&display={display}&start={start}&sort={sort}"
+    
+    try:
+        req = urllib.request.Request(target_url)
+        req.add_header('X-NCP-APIGW-API-KEY-ID', client_id)
+        req.add_header('X-NCP-APIGW-API-KEY', client_secret)
+        
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res_body = response.read().decode('utf-8')
+            return app.response_class(res_body, mimetype='application/json')
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8', errors='ignore')
+        return jsonify({"error": f"HTTP {e.code}: {err_body}"}), e.code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 def inject_and_submit_query(page, plat_key: str, query: str):
     try:
         if "gemini" in plat_key:
