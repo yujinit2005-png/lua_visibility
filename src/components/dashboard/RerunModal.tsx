@@ -165,11 +165,11 @@ export const RerunModal: React.FC<RerunModalProps> = ({
     }
   }, [initialRunId]);
 
-  // currentRunId가 결정되거나 변경될 때마다 답변 로드
+  // currentRunId가 결정되거나 변경될 때마다 답변 로드 및 AI 체크박스 초기화
   useEffect(() => {
     if (isOpen && currentRunId) {
       setLogs([]);
-      fetchAnswersForRun(currentRunId, true);
+      fetchAnswersForRun(currentRunId, true, true);
     }
   }, [isOpen, currentRunId]);
 
@@ -268,7 +268,7 @@ export const RerunModal: React.FC<RerunModalProps> = ({
     setLogs((prev) => [...prev, msg]);
   };
 
-  const fetchAnswersForRun = async (targetRunId: number, showLog: boolean = true) => {
+  const fetchAnswersForRun = async (targetRunId: number, showLog: boolean = true, resetAiTools: boolean = false) => {
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -284,18 +284,21 @@ export const RerunModal: React.FC<RerunModalProps> = ({
         appendLog(`[시스템] Run #${targetRunId} 의 답변 ${ansList.length}건을 불러왔습니다.`);
       }
 
-      // Automatically check only the AI tools that were executed in this run
-      const executedProviders = new Set(ansList.map((a) => (a.provider || '').toLowerCase()));
-      setAiTools({
-        openai: executedProviders.has('openai'),
-        gemini: executedProviders.has('gemini') || executedProviders.has('google gemini'),
-        perplexity: executedProviders.has('perplexity'),
-        naver: executedProviders.has('naver') || executedProviders.has('naver local'),
-        anthropic: executedProviders.has('anthropic') || executedProviders.has('claude'),
-      });
-      
-      // 목록 체크박스 기본값: 불러온 전체 항목 선택 처리
-      setSelectedAnswerIds(new Set(ansList.map((a: any) => a.id)));
+      // ⚠️ 회차(콤보)를 선택하여 변경할 때만 AI 모델 체크박스 및 선택 상태를 초기화하고,
+      // 새로고침이나 개별/전체 재실행 시에는 사용자가 선택한 AI 체크박스 상태를 유지합니다.
+      if (resetAiTools) {
+        const executedProviders = new Set(ansList.map((a) => (a.provider || '').toLowerCase()));
+        setAiTools({
+          openai: executedProviders.has('openai'),
+          gemini: executedProviders.has('gemini') || executedProviders.has('google gemini'),
+          perplexity: executedProviders.has('perplexity'),
+          naver: executedProviders.has('naver') || executedProviders.has('naver local'),
+          anthropic: executedProviders.has('anthropic') || executedProviders.has('claude'),
+        });
+        
+        // 목록 체크박스 기본값: 불러온 전체 항목 선택 처리
+        setSelectedAnswerIds(new Set(ansList.map((a: any) => a.id)));
+      }
     } catch (e: any) {
       if (showLog) appendLog(`❌ 답변 조회 오류: ${e.message}`);
     } finally {
@@ -305,7 +308,15 @@ export const RerunModal: React.FC<RerunModalProps> = ({
 
   const fetchAnswers = async (showLog: boolean = true) => {
     if (!currentRunId) return;
-    await fetchAnswersForRun(currentRunId, showLog);
+    await fetchAnswersForRun(currentRunId, showLog, false);
+  };
+
+  const handleSelectRun = (selectedId: number) => {
+    if (selectedId === currentRunId) {
+      fetchAnswersForRun(selectedId, true, true);
+    } else {
+      setCurrentRunId(selectedId);
+    }
   };
 
   // 현재 체크된 AI 도구에 따라 리스트 필터링
@@ -741,7 +752,7 @@ export const RerunModal: React.FC<RerunModalProps> = ({
             <RunSelector
               runs={runs}
               currentRunId={currentRunId}
-              onSelectRun={(selectedId) => setCurrentRunId(selectedId)}
+              onSelectRun={handleSelectRun}
               onDeleteRun={handleDeleteRun}
               disabled={isRerunning}
               themeColor="purple"
