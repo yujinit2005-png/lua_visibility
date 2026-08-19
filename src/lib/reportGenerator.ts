@@ -914,7 +914,7 @@ export const generateAndUploadReport = async (
     
     // C구역 변수 제거됨 (사용 안함)
 
-    const topKeywords = naverAnsList.slice(0, 5).map(a => {
+    const topKeywords = naverAnsList.slice(0, 10).map(a => {
        const rank = a.first_position;
        const rankText = rank && rank <= 10 ? `${rank}위` : '미노출';
        const w = rank && rank <= 10 ? Math.max(15, 100 - (rank * 8)) : 10;
@@ -930,7 +930,7 @@ export const generateAndUploadReport = async (
        `;
     }).join('');
 
-    const contentKeywords = naverWebAnswers.slice(0, 5).map(wa => {
+    const contentKeywords = naverWebAnswers.slice(0, 10).map(wa => {
        const isOurs = wa.web_mentioned || wa.is_our_hospital;
        const statusText = isOurs ? '노출' : '미노출';
        const w = isOurs ? 80 : 15;
@@ -1032,7 +1032,7 @@ export const generateAndUploadReport = async (
           </div>
         </div>
         
-        <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 플레이스 순위</div>
+        <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 플레이스 순위 (네이버 지역검색 전용 질문셋)</div>
         ${topKeywords}
 
         <div style="margin-top:12px; background:#fff7ed; border:1px solid #ffedd5; padding:8px; border-radius:6px; font-size:10px; font-weight:700; color:#c2410c; display:flex; align-items:center; justify-content:center; gap:6px;">
@@ -1071,7 +1071,7 @@ export const generateAndUploadReport = async (
           </div>
         </div>
 
-        <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 검색 순위</div>
+        <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 검색 순위 (네이버 지역검색 전용 질문셋)</div>
         ${contentKeywords}
         
         <div style="margin-top:12px; background:#f1f5f9; border:1px solid #e2e8f0; padding:8px; border-radius:6px; font-size:10px; font-weight:700; color:#475569; display:flex; align-items:center; justify-content:center; gap:6px;">
