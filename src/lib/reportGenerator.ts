@@ -863,7 +863,7 @@ export const generateAndUploadReport = async (
   ${headerHtml('2x2 경쟁 지형 매트릭스')}
   <div class="pad" style="padding-top:4mm;">
     <div class="pagetitle">우리 병원 vs 경쟁병원<br>2x2 AI 점유 지형도</div>
-    <div class="pagesub">환자 질문별 자사 노출도와 경쟁사 점유도를 교차 분석한 전략 지형도입니다.</div>
+    <div class="pagesub">환자 질문별 자사 노출도와 경쟁사 점유도를 교차 분석한 전략 지형도입니다. <b>(AI 웹서치 지표 기준)</b></div>
     
     <div class="sec"><span class="num">D</span> 질문 포지셔닝 매트릭스</div>
     ${drawMatrix(oppItems)}
