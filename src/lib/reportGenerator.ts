@@ -1412,10 +1412,29 @@ export const generateAndUploadReport = async (
     <div class="sec"><span class="num">F</span> 4대 영역별 실측 원천 데이터 감사</div>
     
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+    
+      ${(() => {
+        const scoreCrawler = rawItems[0]?.earned !== undefined ? rawItems[0].earned : 25;
+        const maxCrawler = rawItems[0]?.maximum || 25;
+        const okCrawler = rawItems[0]?.ok !== undefined ? rawItems[0].ok : true;
+
+        const scoreSchema = rawItems[1]?.earned !== undefined ? rawItems[1].earned : 0;
+        const maxSchema = rawItems[1]?.maximum || 30;
+        const okSchema = rawItems[1]?.ok !== undefined ? rawItems[1].ok : false;
+
+        const scoreContent = rawItems[2]?.earned !== undefined ? rawItems[2].earned : 7;
+        const maxContent = rawItems[2]?.maximum || 25;
+        const okContent = rawItems[2]?.ok !== undefined ? rawItems[2].ok : false;
+
+        const scoreTech = rawItems[3]?.earned !== undefined ? rawItems[3].earned : 20;
+        const maxTech = rawItems[3]?.maximum || 20;
+        const okTech = rawItems[3]?.ok !== undefined ? rawItems[3].ok : true;
+
+        return `
       <div style="border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; background:#fff;">
         <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:6px; display:flex; justify-content:space-between;">
           <span>🤖 6대 AI 봇 수집 통로</span>
-          <span style="color:var(--teal); font-weight:800; font-size:9.5px;">전체 허용 (25점)</span>
+          <span style="color:var(--${okCrawler ? 'teal' : 'orange'}); font-weight:800; font-size:9.5px;">${okCrawler ? '허용' : '미달'} (${scoreCrawler}/${maxCrawler}점)</span>
         </div>
         <div style="font-size:9.5px; color:#475569; line-height:1.45;">
           • GPTBot / ClaudeBot / PerplexityBot 정상 허용<br/>
@@ -1426,7 +1445,7 @@ export const generateAndUploadReport = async (
       <div style="border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; background:#fff;">
         <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:6px; display:flex; justify-content:space-between;">
           <span>🏗️ Schema.org 구조화 코드</span>
-          <span style="color:var(--orange); font-weight:800; font-size:9.5px;">미등록 (0점)</span>
+          <span style="color:var(--${okSchema ? 'teal' : 'orange'}); font-weight:800; font-size:9.5px;">${okSchema ? '충족' : '미달'} (${scoreSchema}/${maxSchema}점)</span>
         </div>
         <div style="font-size:9.5px; color:#475569; line-height:1.45;">
           • MedicalClinic / Hospital 스키마 미검출<br/>
@@ -1437,7 +1456,7 @@ export const generateAndUploadReport = async (
       <div style="border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; background:#fff; grid-column:span 2;">
         <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:6px; display:flex; justify-content:space-between;">
           <span>📝 신뢰 콘텐츠 4대 자산 실재 스니펫 발췌 증빙</span>
-          <span style="color:var(--orange); font-weight:800; font-size:9.5px;">부분 충족 (7/25점)</span>
+          <span style="color:var(--${okContent ? 'teal' : 'orange'}); font-weight:800; font-size:9.5px;">${okContent ? '충족' : '부분 충족'} (${scoreContent}/${maxContent}점)</span>
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:9.5px;">
           <div style="background:#f8fafc; padding:6px 8px; border-radius:4px; border:1px solid #edf2f7;">
@@ -1458,7 +1477,7 @@ export const generateAndUploadReport = async (
       <div style="border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; background:#fff; grid-column:span 2;">
         <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:6px; display:flex; justify-content:space-between;">
           <span>⚙️ 기술적 웹 가독성 지표</span>
-          <span style="color:var(--teal); font-weight:800; font-size:9.5px;">충족 (20/20점)</span>
+          <span style="color:var(--${okTech ? 'teal' : 'orange'}); font-weight:800; font-size:9.5px;">${okTech ? '충족' : '부분 충족'} (${scoreTech}/${maxTech}점)</span>
         </div>
         <div style="display:flex; justify-content:space-between; font-size:9.5px; color:#475569;">
           <span>🔒 HTTPS 보안: <b>적용</b></span>
@@ -1467,6 +1486,9 @@ export const generateAndUploadReport = async (
           <span>🗺️ Sitemap: <b>확인</b></span>
         </div>
       </div>
+      </div>
+      `;
+      })()}
     </div>
   </div>
   ${footHtml(pageNum++, totalPages)}

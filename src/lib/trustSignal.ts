@@ -125,18 +125,25 @@ function extractSnippet(cleanText: string, keywords: string[], maxLen = 140): st
   return '';
 }
 
-// ── 헬퍼: HTML 내부 링크(href) 추출 ──────────────────────────────────
 function extractHrefLinks(html: string, patterns: string[]): string[] {
   if (!html) return [];
   const links = new Set<string>();
-  const regex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
+  const aRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
   let match;
-  while ((match = regex.exec(html)) !== null) {
+  while ((match = aRegex.exec(html)) !== null) {
     const href = match[1].trim();
     if (!href || href.startsWith('#') || href.startsWith('javascript:')) continue;
     const lowerHref = href.toLowerCase();
     if (patterns.some(p => lowerHref.includes(p.toLowerCase()))) {
       links.add(href);
+    }
+  }
+  const iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  while ((match = iframeRegex.exec(html)) !== null) {
+    const src = match[1].trim();
+    const lowerSrc = src.toLowerCase();
+    if (patterns.some(p => lowerSrc.includes(p.toLowerCase()))) {
+      links.add(src);
     }
   }
   return Array.from(links).slice(0, 5); // 최대 5개까지 수집
@@ -151,17 +158,45 @@ export const analyzeTrustSignals = async (urlStr: string): Promise<TrustSignalFu
   } catch (e) {}
   
   const robotsUrl = `${baseUrl}/robots.txt`;
+  const sitemapUrl = `${baseUrl}/sitemap.xml`;
 
   // Fetch concurrently
-  const [htmlContent, robotsText] = await Promise.all([
+  const [htmlContent, robotsText, sitemapText] = await Promise.all([
     fetchViaProxy(targetUrl),
-    fetchViaProxy(robotsUrl)
+    fetchViaProxy(robotsUrl),
+    fetchViaProxy(sitemapUrl)
   ]);
 
-  const html = htmlContent || '';
-  const cleanBodyText = html
+  let html = htmlContent || '';
+  
+  // Depth 1 scanning: 서브페이지 일부 텍스트 및 링크 보강 (최대 3개)
+  if (html) {
+    const internalLinks = new Set<string>();
+    const aRegex = /<a[^>]+href=["'](\/[^"']+)["'][^>]*>/gi;
+    let match;
+    while ((match = aRegex.exec(html)) !== null) {
+      const href = match[1].trim();
+      if (!href.startsWith('#') && !href.startsWith('javascript:') && !href.includes('.png') && !href.includes('.jpg')) {
+        internalLinks.add(baseUrl + href);
+      }
+    }
+    const linksToFetch = Array.from(internalLinks).slice(0, 3);
+    if (linksToFetch.length > 0) {
+      const subpages = await Promise.all(linksToFetch.map(l => fetchViaProxy(l)));
+      subpages.forEach(subHtml => {
+        if (subHtml) html += '\n\n' + subHtml;
+      });
+    }
+  }
+
+  let processedHtml = html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ');
+    
+  // <img> 태그의 alt 속성을 추출하여 텍스트로 보존
+  processedHtml = processedHtml.replace(/<img[^>]+alt=["']([^"']+)["'][^>]*>/gi, ' $1 ');
+
+  const cleanBodyText = processedHtml
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -280,10 +315,10 @@ export const analyzeTrustSignals = async (urlStr: string): Promise<TrustSignalFu
   };
 
   // 1) 의료진 소개
-  const doctorKws = ['의료진', '원장', '전문의', '의사소개', 'physician', 'doctor'];
+  const doctorKws = ['의료진', '원장', '대표원장', '전문의', '의사소개', '약력', 'doctor', 'physician'];
   const hasDoctor = doctorKws.some(kw => textBlob.includes(kw));
   const doctorSnippet = hasDoctor ? extractSnippet(cleanBodyText, doctorKws) : undefined;
-  const doctorLinks = extractHrefLinks(html, ['doctor', 'intro', 'staff', 'member', 'medical']);
+  const doctorLinks = extractHrefLinks(html, ['doctor', 'intro', 'staff', 'member', 'medical', 'profile', 'about']);
   const doctorIntroDetail: ContentSignalDetail = {
     label: '의료진 소개 텍스트 & 약력',
     exists: hasDoctor,
@@ -297,10 +332,10 @@ export const analyzeTrustSignals = async (urlStr: string): Promise<TrustSignalFu
   else itemC.actions.push('의료진 상세 약력/소개 텍스트를 확충하세요.');
 
   // 2) FAQ 질문형 콘텐츠
-  const faqKws = ['자주 묻는', 'faq', 'q&a', '궁금', '질문과 답', '질문'];
+  const faqKws = ['자주 묻는', 'faq', 'q&a', '궁금', '질문과 답', '질문', '온라인상담', '고객센터'];
   const hasFaqContent = faqKws.some(kw => textBlob.includes(kw));
   const faqSnippet = hasFaqContent ? extractSnippet(cleanBodyText, faqKws) : undefined;
-  const faqLinks = extractHrefLinks(html, ['faq', 'qna', 'question', 'help']);
+  const faqLinks = extractHrefLinks(html, ['faq', 'qna', 'question', 'help', 'board', 'bbs', 'consult', 'counsel']);
   const faqContentDetail: ContentSignalDetail = {
     label: 'FAQ / 질문과 답변 콘텐츠',
     exists: hasFaqContent,
@@ -314,7 +349,7 @@ export const analyzeTrustSignals = async (urlStr: string): Promise<TrustSignalFu
   else itemC.actions.push('환자 주요 궁금증을 해소하는 FAQ 콘텐츠를 추가하세요.');
 
   // 3) 블로그 / 건강칼럼
-  const blogKws = ['블로그', '칼럼', '건강정보', 'blog', 'column', 'blog.naver'];
+  const blogKws = ['블로그', '칼럼', '건강정보', '치료사례', 'blog', 'column', 'blog.naver'];
   const hasBlog = blogKws.some(kw => textBlob.includes(kw)) || html.includes('blog.naver.com');
   const blogSnippet = hasBlog ? extractSnippet(cleanBodyText, blogKws) : undefined;
   const blogLinks = extractHrefLinks(html, ['blog.naver.com', 'blog', 'column', 'news']);
@@ -331,10 +366,10 @@ export const analyzeTrustSignals = async (urlStr: string): Promise<TrustSignalFu
   else itemC.actions.push('원장 건강칼럼 또는 네이버 블로그 채널을 연동하세요.');
 
   // 4) 유튜브 미디어
-  const ytKws = ['youtube.com', 'youtu.be', '유튜브'];
-  const hasYt = ytKws.some(kw => html.toLowerCase().includes(kw));
-  const ytSnippet = hasYt ? extractSnippet(cleanBodyText, ['유튜브', 'youtube', '영상']) : undefined;
-  const ytLinks = extractHrefLinks(html, ['youtube.com', 'youtu.be']);
+  const ytKws = ['youtube.com', 'youtu.be', '유튜브', 'TV'];
+  const hasYt = ytKws.some(kw => html.toLowerCase().includes(kw.toLowerCase()));
+  const ytSnippet = hasYt ? extractSnippet(cleanBodyText, ['유튜브', 'youtube', '영상', 'TV']) : undefined;
+  const ytLinks = extractHrefLinks(html, ['youtube.com', 'youtu.be', 'youtube.com/embed/']);
   const youtubeMediaDetail: ContentSignalDetail = {
     label: '유튜브 채널 및 영상 링크',
     exists: hasYt,
@@ -342,7 +377,7 @@ export const analyzeTrustSignals = async (urlStr: string): Promise<TrustSignalFu
     maxScore: 6,
     snippet: ytSnippet,
     links: ytLinks,
-    matchedKeywords: ytKws.filter(kw => html.toLowerCase().includes(kw))
+    matchedKeywords: ytKws.filter(kw => html.toLowerCase().includes(kw.toLowerCase()))
   };
   if (hasYt) { itemC.earned += 6; itemC.findings.push(`유튜브 영상/채널 연동 확인됨 (+6점) [URL: ${ytLinks[0] || 'YouTube'}]`); }
   else itemC.actions.push('원장 인터뷰/설명 영상 유튜브 채널을 연결하세요.');
@@ -372,15 +407,16 @@ export const analyzeTrustSignals = async (urlStr: string): Promise<TrustSignalFu
 
   // 2) Title
   let titleVal = '';
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleMatch && titleMatch[1]) titleVal = titleMatch[1].trim();
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (titleMatch && titleMatch[1]) titleVal = titleMatch[1].replace(/\s+/g, ' ').trim();
   const hasTitle = Boolean(titleVal);
   if (hasTitle) { itemD.earned += 4; itemD.findings.push(`페이지 <title> 태그 확인 (+4점) ["${titleVal.slice(0, 30)}..."]`); }
   else itemD.actions.push('페이지 타이틀(<title>) 태그를 채우세요.');
 
   // 3) Meta Description
   let descVal = '';
-  const descMatch = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+  const descMatch = html.match(/<meta\s+(?:[^>]*?\s+)?name=["']?description["']?\s+(?:[^>]*?\s+)?content=["']?([^"'>]+)["']?/i) 
+                 || html.match(/<meta\s+(?:[^>]*?\s+)?content=["']?([^"'>]+)["']?\s+(?:[^>]*?\s+)?name=["']?description["']?/i);
   if (descMatch && descMatch[1]) descVal = descMatch[1].trim();
   const hasDesc = Boolean(descVal);
   if (hasDesc) { itemD.earned += 4; itemD.findings.push(`메타 설명(description) 태그 확인 (+4점) ["${descVal.slice(0, 30)}..."]`); }
@@ -393,8 +429,16 @@ export const analyzeTrustSignals = async (urlStr: string): Promise<TrustSignalFu
   else itemD.actions.push(`본문 텍스트 분량이 너무 적습니다. 이미지 외의 텍스트를 확충하세요 (현재 약 ${textCount}자).`);
 
   // 5) Sitemap
-  itemD.earned += 3;
-  itemD.findings.push('sitemap.xml 통과 (+3점)');
+  const hasSitemapFile = typeof sitemapText === 'string' && sitemapText.includes('xml');
+  const hasSitemapInRobots = typeof robotsText === 'string' && robotsText.toLowerCase().includes('sitemap:');
+  const isSitemapFound = hasSitemapFile || hasSitemapInRobots;
+  
+  if (isSitemapFound) {
+    itemD.earned += 3;
+    itemD.findings.push('sitemap.xml 통과 (+3점)');
+  } else {
+    itemD.actions.push('검색 엔진용 사이트맵(sitemap.xml)을 제출하세요.');
+  }
 
   itemD.ok = itemD.earned >= 16;
   itemD.note = `${itemD.earned}/${itemD.maximum}점 · 기술적 지표별 합산됨.`;

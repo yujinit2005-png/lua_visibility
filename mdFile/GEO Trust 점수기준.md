@@ -64,17 +64,18 @@
 - **파싱 원리**: 단순 키워드 존재 여부만 체크하지 않고, **(1) 키워드 매칭 여부**, **(2) 실제 본문 문맥 발췌문(스니펫 140자)**, **(3) 연결된 실제 하이퍼링크(URL)**를 복합 추출하여 `content_details`에 증빙 데이터로 영구 저장합니다.
 
 #### 세부 항목별 파싱 기준표
-| 세부 항목 | 배점 | 텍스트 감지 키워드 (Target Keywords) | 링크 감지 패턴 (`<a href>`) | 추출 스니펫 및 증빙 데이터 |
-|---|:---:|---|---|---|
-| **① 의료진 소개 & 약력** | **7점** | `의료진`, `원장`, `전문의`, `의사소개`, `physician`, `doctor` | `doctor`, `intro`, `staff`, `member`, `medical` | • 약력 문맥 140자 스니펫<br/>• 의료진 소개 페이지 내부 링크 URL |
-| **② FAQ / 질의응답** | **6점** | `자주 묻는`, `faq`, `q&a`, `궁금`, `질문과 답`, `질문` | `faq`, `qna`, `question`, `help` | • 자주 묻는 질문 텍스트 스니펫<br/>• FAQ/고객센터 링크 URL |
-| **③ 블로그 / 건강칼럼** | **6점** | `블로그`, `칼럼`, `건강정보`, `blog`, `column`, `blog.naver` | `blog.naver.com`, `blog`, `column`, `news` | • 칼럼/사례 텍스트 스니펫<br/>• 공식 네이버 블로그/칼럼 URL |
-| **④ 유튜브 영상/채널** | **6점** | `youtube.com`, `youtu.be`, `유튜브` | `youtube.com`, `youtu.be` | • 영상 설명 문맥 스니펫<br/>• 실제 유튜브 채널/동영상 URL |
+| 세부 항목 | 배점 | 텍스트/요소 감지 키워드 (Target Keywords & Attributes) | 링크 감지 패턴 (`<a href>` 또는 `<iframe src>`) | 추출 스니펫 및 증빙 데이터 |
+| --- | --- | --- | --- | --- |
+| **① 의료진 소개 & 약력** | **7점** | `의료진`, `원장`, `대표원장`, `전문의`, `의사소개`, `약력`, `doctor`, `physician` *(+ img alt 태그 포함)* | `doctor`, `intro`, `staff`, `member`, `medical`, `profile`, `about` | • 약력/소개 문맥 140자 스니펫<br/>• 의료진 소개 페이지 내부 링크 URL |
+| **② FAQ / 질의응답** | **6점** | `자주 묻는`, `faq`, `q&a`, `질문과 답`, `궁금`, `온라인상담`, `고객센터` | `faq`, `qna`, `question`, `help`, `board`, `bbs`, `consult`, `counsel` | • 질문/상담 관련 텍스트 스니펫<br/>• 게시판/고객센터 링크 URL |
+| **③ 블로그 / 건강칼럼** | **6점** | `블로그`, `칼럼`, `건강정보`, `치료사례`, `blog`, `column`, `blog.naver` | `blog.naver.com`, `blog`, `column`, `news` | • 칼럼 제목/사례 텍스트 스니펫<br/>• 블로그/칼럼 게시판 하이퍼링크 URL |
+| **④ 유튜브 영상/채널** | **6점** | `유튜브`, `youtube.com`, `youtu.be`, `TV` | `youtube.com`, `youtu.be`, `youtube.com/embed/` (iframe 포함) | • 영상 설명/제목 스니펫<br/>• 실제 유튜브 채널/동영상 URL |
 
 #### 핵심 파싱 알고리즘
 ```typescript
-// 1. 키워드 매칭 주변 140자 문맥 스니펫 발췌
+// 1. 키워드 매칭 주변 140자 문맥 스니펫 발췌 (img alt 태그 내용 포함)
 function extractSnippet(cleanText: string, keywords: string[], maxLen = 140): string {
+  // 본문 텍스트 외에 <img> 태그의 alt 속성값도 cleanText에 포함하여 검사합니다.
   const lower = cleanText.toLowerCase();
   for (const kw of keywords) {
     const idx = lower.indexOf(kw.toLowerCase());
@@ -90,16 +91,25 @@ function extractSnippet(cleanText: string, keywords: string[], maxLen = 140): st
   return '';
 }
 
-// 2. 해당 섹션의 실제 URL 링크 추출 (최대 5개)
+// 2. 해당 섹션의 실제 URL 링크 추출 (최대 5개, <a> href 및 <iframe> src 지원)
 function extractHrefLinks(html: string, patterns: string[]): string[] {
   const links = new Set<string>();
-  const regex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
+  // <a> 태그의 href 추출
+  const aRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
   let match;
-  while ((match = regex.exec(html)) !== null) {
+  while ((match = aRegex.exec(html)) !== null) {
     const href = match[1].trim();
     if (!href || href.startsWith('#') || href.startsWith('javascript:')) continue;
     if (patterns.some(p => href.toLowerCase().includes(p.toLowerCase()))) {
       links.add(href);
+    }
+  }
+  // <iframe> 태그의 src 추출 (유튜브 등)
+  const iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  while ((match = iframeRegex.exec(html)) !== null) {
+    const src = match[1].trim();
+    if (patterns.some(p => src.toLowerCase().includes(p.toLowerCase()))) {
+      links.add(src);
     }
   }
   return Array.from(links).slice(0, 5);
