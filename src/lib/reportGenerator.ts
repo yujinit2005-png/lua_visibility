@@ -839,22 +839,7 @@ export const generateAndUploadReport = async (
     else if (contentScore >= 50) { contentStatus = "GOOD"; contentColor = "#15803d"; }
     else if (contentScore >= 30) { contentStatus = "NEEDS IMPROVEMENT"; contentColor = "#E45928"; }
     
-    let naverPosition = "Low Visibility";
-    let naverPositionDesc = "플레이스와 콘텐츠 모두 경쟁사 대비 열세인 상태로, 전면적인 로컬 마케팅 재정비가 필요합니다.";
-    let recommendedAction = "핵심 키워드 추출 ➔ 플레이스 세팅 리뉴얼 ➔ 블로그/카페 연계 발행";
-    if (placeScore >= 60 && contentScore >= 60) {
-      naverPosition = "Market Leader";
-      naverPositionDesc = "네이버 플레이스와 콘텐츠 바이럴 영역 모두를 압도적으로 장악하고 있는 최상위 선도 병원입니다.";
-      recommendedAction = "현상 유지 및 블루오션 키워드 확장 발굴";
-    } else if (placeScore < 60 && contentScore >= 60) {
-      naverPosition = "Content Strong";
-      naverPositionDesc = "바이럴 콘텐츠는 활발하나 플레이스 순위가 낮아 실제 예약 전환율 보완이 필요합니다.";
-      recommendedAction = "플레이스 트래픽 증대 및 리뷰 등 순위 상승 최적화 집중";
-    } else if (placeScore >= 60 && contentScore < 60) {
-      naverPosition = "Local Strong";
-      naverPositionDesc = "플레이스 검색 경쟁력은 우수하지만, 블로그·웹문서 콘텐츠 장악력이 상대적으로 부족합니다.";
-      recommendedAction = "플레이스 유지 ➔ 콘텐츠 점유 확대 ➔ 제3자 언급 확대";
-    }
+    // C구역 변수 제거됨 (사용 안함)
 
     const topKeywords = naverAnsList.slice(0, 5).map(a => {
        const rank = a.first_position;
@@ -904,7 +889,7 @@ export const generateAndUploadReport = async (
     ];
     
     for (let i = 0; i < 4; i++) {
-      const cName = configCompetitors[i] || \`경쟁\${String.fromCharCode(65+i)}병원\`;
+      const cName = configCompetitors[i] || `경쟁${String.fromCharCode(65+i)}병원`;
       displayComps.push({ name: cName, place: dummyScores[i].place, content: dummyScores[i].content, isOur: false });
     }
 
@@ -913,26 +898,26 @@ export const generateAndUploadReport = async (
       const weight = c.isOur ? '800' : '500';
       const barColor = c.isOur ? 'linear-gradient(90deg, #E45928, #17436A)' : '#475569';
       
-      compTableRows += \`
+      compTableRows += `
         <tr>
-          <td style="padding:6px; border:1px solid #cbd5e1; color:\${color}; font-weight:\${weight};">\${c.name}</td>
-          <td style="padding:6px; border:1px solid #cbd5e1; color:\${color}; font-weight:\${weight};">\${c.place}</td>
-          <td style="padding:6px; border:1px solid #cbd5e1; color:\${color}; font-weight:\${weight};">\${c.content}</td>
-        </tr>\`;
+          <td style="padding:6px; border:1px solid #cbd5e1; color:${color}; font-weight:${weight};">${c.name}</td>
+          <td style="padding:6px; border:1px solid #cbd5e1; color:${color}; font-weight:${weight};">${c.place}</td>
+          <td style="padding:6px; border:1px solid #cbd5e1; color:${color}; font-weight:${weight};">${c.content}</td>
+        </tr>`;
         
-      compPlaceBars += \`
+      compPlaceBars += `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px;">
-          <span style="width:40px; font-weight:\${weight}; color:\${color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="\${c.name}">\${c.isOur ? '당사' : c.name}</span>
-          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:\${c.place}%; height:100%; background:\${barColor}; border-radius:5px;"></div></div>
-          <span style="width:20px; font-weight:800; color:\${color};">\${c.place}</span>
-        </div>\`;
+          <span style="width:40px; font-weight:${weight}; color:${color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${c.name}">${c.isOur ? '당사' : c.name}</span>
+          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:${c.place}%; height:100%; background:${barColor}; border-radius:5px;"></div></div>
+          <span style="width:20px; font-weight:800; color:${color};">${c.place}</span>
+        </div>`;
 
-      compContentBars += \`
+      compContentBars += `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px;">
-          <span style="width:40px; font-weight:\${weight}; color:\${color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="\${c.name}">\${c.isOur ? '당사' : c.name}</span>
-          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:\${c.content}%; height:100%; background:\${barColor}; border-radius:5px;"></div></div>
-          <span style="width:20px; font-weight:800; color:\${color};">\${c.content}</span>
-        </div>\`;
+          <span style="width:40px; font-weight:${weight}; color:${color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${c.name}">${c.isOur ? '당사' : c.name}</span>
+          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:${c.content}%; height:100%; background:${barColor}; border-radius:5px;"></div></div>
+          <span style="width:20px; font-weight:800; color:${color};">${c.content}</span>
+        </div>`;
     });
 
     page5 = `
