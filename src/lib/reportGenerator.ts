@@ -734,7 +734,7 @@ export const generateAndUploadReport = async (
   });
 
   const dateStr = new Date().toISOString().split('T')[0];
-  const hasMultipleNaverPages = includeNaver && naverAnsList.length > 10;
+  const hasMultipleNaverPages = includeNaver && naverAnsList.length > 11;
   const totalPages = includeNaver ? (hasMultipleNaverPages ? 10 : 9) : 8;
   let pageNum = 1;
 
@@ -980,8 +980,8 @@ export const generateAndUploadReport = async (
        `;
     };
 
-    const firstChunk = naverAnsList.slice(0, 10);
-    const secondChunk = naverAnsList.slice(10);
+    const firstChunk = naverAnsList.slice(0, hasMultipleNaverPages ? 16 : naverAnsList.length);
+    const secondChunk = hasMultipleNaverPages ? naverAnsList.slice(16) : [];
     
     const topKeywords = firstChunk.map(a => getTopKeywordHtml(a)).join('');
     const contentKeywords = firstChunk.map(a => getContentKeywordHtml(a)).join('');
@@ -1160,16 +1160,17 @@ export const generateAndUploadReport = async (
 </div>`;
 
     if (hasMultipleNaverPages) {
-      const topKeywords2 = secondChunk.map(a => getTopKeywordHtml(a)).join('');
-      const contentKeywords2 = secondChunk.map(a => getContentKeywordHtml(a)).join('');
+      const topKeywords2 = secondChunk.length > 0 ? secondChunk.map(a => getTopKeywordHtml(a)).join('') : '';
+      const contentKeywords2 = secondChunk.length > 0 ? secondChunk.map(a => getContentKeywordHtml(a)).join('') : '';
       
       page5 += `
 <div class="page">
   ${headerHtml('NAVER DUAL VISIBILITY')}
   <div class="pad" style="padding-top:4mm;">
-    <div class="pagetitle">네이버 로컬 가시성 (상세항목 계속)</div>
-    <div class="pagesub">측정 키워드 11~${naverAnsList.length}번 항목에 대한 상세 노출 결과입니다.</div>
+    <div class="pagetitle">네이버 로컬 가시성 (종합 지표 계속)</div>
     
+    ${secondChunk.length > 0 ? `
+    <div class="pagesub">측정 키워드 17~${naverAnsList.length}번 항목에 대한 상세 노출 결과입니다.</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
       <div>
         <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 플레이스 순위 (계속)</div>
@@ -1187,7 +1188,9 @@ export const generateAndUploadReport = async (
           📄 블로그·웹문서·제3자 언급에서 우리 병원이 얼마나 점유하는가
         </div>
       </div>
-    </div>
+    </div>` : `
+    <div class="pagesub">네이버 로컬 가시성 종합 분석 지표(경쟁사 점유율 비교) 결과입니다.</div>
+    `}
     
     <div class="sec" style="margin-top:20px;"><span class="num">C</span> NAVER LOCAL SHARE OF VOICE</div>
     <div style="display:flex; gap:16px;">
