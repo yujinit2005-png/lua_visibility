@@ -833,7 +833,7 @@ export const generateAndUploadReport = async (
   ${headerHtml('질문 세트별 공략 우선순위')}
   <div class="pad" style="padding-top:4mm;">
     <div class="pagetitle">환자가 묻는 핵심 질문,<br>어디서 빼앗기고 어디서 앞설까요?</div>
-    <div class="pagesub">실제 환자 검색 시나리오 기반 전체 ${oppItems.length}개 질문에 대한 자사 및 경쟁병원 AI 노출 현황입니다.</div>
+    <div class="pagesub">실제 환자 검색 시나리오 기반 전체 ${oppItems.length}개 질문에 대한 자사 및 경쟁병원 <b>AI 웹서치 지표 (크롤링 기준)</b> 노출 현황입니다.</div>
     <div class="sec"><span class="num">C</span> 전체 질문 세트 진단 (${oppItems.length}개 질의)</div>
     <div class="opps ${isTwoCol ? 'two-col' : ''}">
       ${oppItems.map((o, idx) => {
