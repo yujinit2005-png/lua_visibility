@@ -442,6 +442,24 @@ export const generateAndUploadReport = async (
     appendLog(`⚠️ 네이버 크롤링 실측 자료가 수집되지 않아 네이버 로컬 가시성 리포트(5페이지) 생성이 제외됩니다.`);
   }
 
+  const getDisplayName = (prov: string) => {
+    const p = (prov || '').toLowerCase();
+    if (p === 'openai' || p === 'chatgpt') return 'ChatGPT';
+    if (p === 'anthropic' || p === 'claude') return 'Claude';
+    if (!p) return 'Unknown';
+    return p.charAt(0).toUpperCase() + p.slice(1);
+  };
+
+  const AI_ORDER = ['ChatGPT', 'Gemini', 'Perplexity', 'Claude'];
+  const sortModelStats = (a: ModelStat, b: ModelStat) => {
+    const idxA = AI_ORDER.indexOf(a.name);
+    const idxB = AI_ORDER.indexOf(b.name);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.name.localeCompare(b.name);
+  };
+
   const providersSet = Array.from(new Set(aiAnsList.map(a => a.provider)));
   
   const modelStats: ModelStat[] = providersSet.map(prov => {
@@ -452,12 +470,12 @@ export const generateAndUploadReport = async (
     const tops = provAns.filter(a => (a.first_position !== null && a.first_position !== undefined && a.first_position <= 50)).length;
 
     return {
-      name: prov,
+      name: getDisplayName(prov),
       mention_rate: Number((mentions / total).toFixed(2)),
       recommend_rate: Number((recommends / total).toFixed(2)),
       top_rate: Number((tops / total).toFixed(2))
     };
-  });
+  }).sort(sortModelStats);
 
   const aiWebProvidersSet = Array.from(new Set(aiWebVers.map(v => v.platform)));
   const webModelStats: ModelStat[] = aiWebProvidersSet.map(prov => {
@@ -466,12 +484,12 @@ export const generateAndUploadReport = async (
     const total = provAns.length || 1;
     const mentions = provAns.filter(a => Boolean(a.web_mentioned || a.is_our_hospital)).length;
     return {
-      name: prov,
+      name: getDisplayName(prov),
       mention_rate: Number((mentions / total).toFixed(2)),
       recommend_rate: 0,
       top_rate: 0
     };
-  });
+  }).sort(sortModelStats);
 
   const overallMention = modelStats.length > 0
     ? Number((modelStats.reduce((acc, m) => acc + m.mention_rate, 0) / modelStats.length).toFixed(2))
