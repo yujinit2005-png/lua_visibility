@@ -86,6 +86,17 @@ export interface TrustSignalFullReport {
 // CORS proxy helper
 const fetchViaProxy = async (url: string): Promise<string | null> => {
   try {
+    // 1. Direct fetch 시도 (서버 환경이거나 CORS가 열려있는 경우)
+    const directRes = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(8000) });
+    if (directRes.ok) {
+      return await directRes.text();
+    }
+  } catch (e) {
+    // fallback to proxy
+  }
+
+  try {
+    // 2. Proxy fetch 시도
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
     const res = await fetch(proxyUrl, { method: 'GET', signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;

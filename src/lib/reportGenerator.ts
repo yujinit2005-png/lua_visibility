@@ -1480,10 +1480,10 @@ export const generateAndUploadReport = async (
           <span style="color:var(--${okTech ? 'teal' : 'orange'}); font-weight:800; font-size:9.5px;">${okTech ? '충족' : '부분 충족'} (${scoreTech}/${maxTech}점)</span>
         </div>
         <div style="display:flex; justify-content:space-between; font-size:9.5px; color:#475569;">
-          <span>🔒 HTTPS 보안: <b>적용</b></span>
-          <span>📑 Title/Meta: <b>정상</b></span>
-          <span>📄 텍스트 분량: <b>충분 (600자↑)</b></span>
-          <span>🗺️ Sitemap: <b>확인</b></span>
+          <span>🔒 HTTPS 보안: <b>${okTech ? '적용' : '미적용'}</b></span>
+          <span>📑 Title/Meta: <b>${okTech ? '정상' : '확인필요'}</b></span>
+          <span>📄 텍스트 분량: <b>${okTech ? '충분 (600자↑)' : '부족'}</b></span>
+          <span>🗺️ Sitemap: <b>${okTech ? '확인' : '미검출'}</b></span>
         </div>
       </div>
       </div>
