@@ -734,7 +734,8 @@ export const generateAndUploadReport = async (
   });
 
   const dateStr = new Date().toISOString().split('T')[0];
-  const totalPages = includeNaver ? 9 : 8;
+  const hasMultipleNaverPages = includeNaver && naverAnsList.length > 10;
+  const totalPages = includeNaver ? (hasMultipleNaverPages ? 10 : 9) : 8;
   let pageNum = 1;
 
   const page1 = `
@@ -945,7 +946,7 @@ export const generateAndUploadReport = async (
     
     // C구역 변수 제거됨 (사용 안함)
 
-    const topKeywords = naverAnsList.map(a => {
+    const getTopKeywordHtml = (a: any) => {
        const rank = a.first_position;
        const rankText = rank ? `${rank}위` : '미노출';
        const w = rank ? Math.max(15, 100 - (rank * 2)) : 10;
@@ -960,9 +961,9 @@ export const generateAndUploadReport = async (
           <div style="width:35px; text-align:right; font-weight:800; color:${rank && rank <= 10 ? '#1e293b' : '#94a3b8'};">${rankText}</div>
         </div>
        `;
-    }).join('');
+    };
 
-    const contentKeywords = naverAnsList.map(a => {
+    const getContentKeywordHtml = (a: any) => {
        const wa = naverWebAnswers.find(w => w.query === a.query);
        const isOurs = wa ? (wa.web_mentioned || wa.is_our_hospital) : false;
        const statusText = isOurs ? '노출' : '미노출';
@@ -977,7 +978,13 @@ export const generateAndUploadReport = async (
           <div style="width:35px; text-align:right; font-weight:800; color:${isOurs ? '#1e293b' : '#94a3b8'};">${statusText}</div>
         </div>
        `;
-    }).join('');
+    };
+
+    const firstChunk = naverAnsList.slice(0, 10);
+    const secondChunk = naverAnsList.slice(10);
+    
+    const topKeywords = firstChunk.map(a => getTopKeywordHtml(a)).join('');
+    const contentKeywords = firstChunk.map(a => getContentKeywordHtml(a)).join('');
 
     let compTableRows = '';
     let compPlaceBars = '';
@@ -1068,9 +1075,11 @@ export const generateAndUploadReport = async (
         <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 플레이스 순위 (네이버 지역검색 전용 질문셋)</div>
         ${topKeywords}
 
+        ${!hasMultipleNaverPages ? `
         <div style="margin-top:12px; background:#fff7ed; border:1px solid #ffedd5; padding:8px; border-radius:6px; font-size:10px; font-weight:700; color:#c2410c; display:flex; align-items:center; justify-content:center; gap:6px;">
           📍 지도에서 얼마나 자주, 얼마나 위에서 발견되는가
         </div>
+        ` : ''}
       </div>
       
       <!-- Section B -->
@@ -1106,6 +1115,73 @@ export const generateAndUploadReport = async (
 
         <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 검색 순위 (네이버 지역검색 전용 질문셋)</div>
         ${contentKeywords}
+        
+        ${!hasMultipleNaverPages ? `
+        <div style="margin-top:12px; background:#f1f5f9; border:1px solid #e2e8f0; padding:8px; border-radius:6px; font-size:10px; font-weight:700; color:#475569; display:flex; align-items:center; justify-content:center; gap:6px;">
+          📄 블로그·웹문서·제3자 언급에서 우리 병원이 얼마나 점유하는가
+        </div>
+        ` : ''}
+      </div>
+    </div>
+    
+    ${!hasMultipleNaverPages ? `
+    <div class="sec" style="margin-top:20px;"><span class="num">C</span> NAVER LOCAL SHARE OF VOICE</div>
+    <div style="display:flex; gap:16px;">
+      <table style="flex:1; border-collapse:collapse; text-align:center; font-size:10px; font-weight:800;">
+        <thead>
+          <tr style="background:var(--navy); color:#fff;">
+            <th style="padding:6px; border:1px solid #cbd5e1;">병원</th>
+            <th style="padding:6px; border:1px solid #cbd5e1;">Place</th>
+            <th style="padding:6px; border:1px solid #cbd5e1;">Content</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${compTableRows}
+        </tbody>
+      </table>
+      
+      <div style="flex:1; border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc;">
+        <div style="font-size:9.5px; font-weight:800; color:#475569; margin-bottom:8px;">PLACE 네이버 플레이스 노출 경쟁력</div>
+        ${compPlaceBars}
+      </div>
+      
+      <div style="flex:1; border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc;">
+        <div style="font-size:9.5px; font-weight:800; color:#475569; margin-bottom:8px;">CONTENT 네이버 콘텐츠 점유 경쟁력</div>
+        ${compContentBars}
+      </div>
+    </div>
+    
+    <div style="margin-top:12px; background:#f1f5f9; padding:6px 12px; border-radius:4px; font-size:9px; color:#64748b;">
+      ℹ️ 데이터 수집: Naver Place API / Search Result Crawling
+    </div>
+    ` : ''}
+  </div>
+  ${footHtml(pageNum++, totalPages)}
+</div>`;
+
+    if (hasMultipleNaverPages) {
+      const topKeywords2 = secondChunk.map(a => getTopKeywordHtml(a)).join('');
+      const contentKeywords2 = secondChunk.map(a => getContentKeywordHtml(a)).join('');
+      
+      page5 += `
+<div class="page">
+  ${headerHtml('NAVER DUAL VISIBILITY')}
+  <div class="pad" style="padding-top:4mm;">
+    <div class="pagetitle">네이버 로컬 가시성 (상세항목 계속)</div>
+    <div class="pagesub">측정 키워드 11~${naverAnsList.length}번 항목에 대한 상세 노출 결과입니다.</div>
+    
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
+      <div>
+        <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 플레이스 순위 (계속)</div>
+        ${topKeywords2}
+        
+        <div style="margin-top:12px; background:#fff7ed; border:1px solid #ffedd5; padding:8px; border-radius:6px; font-size:10px; font-weight:700; color:#c2410c; display:flex; align-items:center; justify-content:center; gap:6px;">
+          📍 지도에서 얼마나 자주, 얼마나 위에서 발견되는가
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 검색 순위 (계속)</div>
+        ${contentKeywords2}
         
         <div style="margin-top:12px; background:#f1f5f9; border:1px solid #e2e8f0; padding:8px; border-radius:6px; font-size:10px; font-weight:700; color:#475569; display:flex; align-items:center; justify-content:center; gap:6px;">
           📄 블로그·웹문서·제3자 언급에서 우리 병원이 얼마나 점유하는가
@@ -1145,6 +1221,7 @@ export const generateAndUploadReport = async (
   </div>
   ${footHtml(pageNum++, totalPages)}
 </div>`;
+    }
   }
 
   let trustScoreTotal = 52;
