@@ -7,7 +7,7 @@
 ## 🏛️ GEO Trust 4대 영역 종합 배점표
 
 | 영역 코드 | 평가 영역 | 배점 | 합격선 | 주요 측정 대상 및 가치 |
-|:---:|---|:---:|:---:|---|
+| :---: | --- | :---: | :---: | --- |
 | **A** | **AI 크롤러 접근성 (robots.txt)** | **25점** | 20점 | 6대 생성형 AI 봇 접근 허용 여부 (학습 및 실시간 검색 차단 방지) |
 | **B** | **구조화 데이터 (Schema.org)** | **30점** | 20점 | JSON-LD 규격(의료기관, FAQ, 지역, 평점) 등재 여부 |
 | **C** | **신뢰 콘텐츠 자산 (Trust Signals)** | **25점** | 18점 | 의료진 약력, FAQ 질의응답, 건강칼럼/블로그, 유튜브 연동 실재성 |
@@ -58,12 +58,104 @@
 
 ---
 
+# B. 구조화 데이터 (Schema.org) — 미달 원인과 개선 방안
+
+### 1. 현황 진단 및 예상 영향
+사람은 홈페이지를 눈으로 읽어 병원임을 알 수 있지만, AI는 오직 코드로만 정보를 읽습니다. 현재 귀 병원의 홈페이지에는 AI가 인식할 수 있는 전용 규격 정보(JSON-LD)가 등재되어 있지 않습니다. 이로 인해 AI가 귀 병원의 전문 진료과, 의료진 규모, 기관 종류를 100% 확신하지 못하며, 정보 확신성이 낮은 병원은 AI 추천 리스트에서 우선적으로 배제되는 경향을 보입니다.
+
+### 2. 구체적 미달 항목
+- **`MedicalClinic` / `Hospital` 스키마 미검출 (-14점)**: AI에게 "우리는 어떤 진료를 하는 무슨 병원이다"라고 명시하는 가장 핵심적인 의료기관 메타데이터가 없습니다.
+- **`FAQPage` / `AggregateRating` 스키마 부재 (-11점)**: AI가 환자의 질문에 답변할 때 즉시 인용할 수 있는 '자주 묻는 질문(FAQ)' 구조와 '환자 평가(리뷰/별점)' 데이터가 AI 규격으로 연결되어 있지 않습니다.
+
+### 3. 개선 솔루션 (웹 에이전시 전달용 가이드)
+홈페이지의 `<head>` 태그 내에 AI가 읽을 수 있는 **JSON-LD(JavaScript Object Notation for Linked Data)** 형식의 스크립트를 삽입하는 단시간 작업으로 해결할 수 있습니다. 홈페이지 개발/유지보수 담당자에게 아래 가이드를 전달해 주시기 바랍니다.
+
+---
+
+> 💻 **웹에이전시/개발자 작업 요청서 [예시 코드]**
+> 검색엔진 및 AI 크롤러(GPTBot, ClaudeBot 등)가 병원 정보를 명확히 파싱할 수 있도록, 홈페이지 공통 `<head>` 영역 또는 메인 페이지에 아래의 JSON-LD 구조화 데이터 삽입을 요청합니다.
+
+#### ① 병원 기본 규격 (`MedicalClinic` 스키마)
+병원의 이름, 주소, 연락처, 주요 진료과목을 명시합니다.
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "MedicalClinic",
+  "name": "청주OOO한방병원",
+  "image": "https://www.example.com/logo.jpg",
+  "url": "https://www.example.com",
+  "telephone": "043-000-0000",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "강서로 00",
+    "addressLocality": "청주시",
+    "addressRegion": "충청북도",
+    "postalCode": "28000",
+    "addressCountry": "KR"
+  },
+  "medicalSpecialty": "TraditionalChineseMedicine"
+}
+</script>
+```
+
+#### ② 질문형 답변 최적화 (`FAQPage` 스키마)
+환자들이 자주 묻는 대표 질문 2~3가지를 텍스트 기반으로 삽입하여 AI가 답변의 출처로 활용하도록 유도합니다.
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [{
+    "@type": "Question",
+    "name": "교통사고 후유증 한방치료는 입원이 가능한가요?",
+    "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "네, 청주OOO한방병원에서는 교통사고 후유증 환자를 위한 집중 치료 입원실을 운영하고 있습니다."
+    }
+  }, {
+    "@type": "Question",
+    "name": "허리디스크 비수술 치료(추나요법)를 진행하나요?",
+    "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "숙련된 한의사가 직접 진행하는 한방 추나요법 및 도수치료를 통해 허리디스크 비수술 치료를 시행합니다."
+    }
+  }]
+}
+</script>
+```
+
+#### ③ 환자 평가/리뷰 (`AggregateRating` 스키마)
+영업용 페이지나 주요 치료 랜딩 페이지에 별점 정보를 제공하여 신뢰도를 높입니다.
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "MedicalClinic",
+  "name": "청주OOO한방병원",
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "4.8",
+    "reviewCount": "150"
+  }
+}
+</script>
+```
+
+*(※ 안내 사항: 위 코드는 예시이므로, 병원의 실제 정보와 URL에 맞게 텍스트를 수정하여 적용해 주시면 됩니다.)*
+
+---
+
 ### 3. C. 신뢰 콘텐츠 자산 (Trust Signals) (25점 만점, 합격선 18점)
 
 - **수집 대상**: 본문 정제 텍스트(`cleanBodyText`) 및 전체 앵커 태그(`<a href>`)
 - **파싱 원리**: 단순 키워드 존재 여부만 체크하지 않고, **(1) 키워드 매칭 여부**, **(2) 실제 본문 문맥 발췌문(스니펫 140자)**, **(3) 연결된 실제 하이퍼링크(URL)**를 복합 추출하여 `content_details`에 증빙 데이터로 영구 저장합니다.
 
 #### 세부 항목별 파싱 기준표
+
 | 세부 항목 | 배점 | 텍스트/요소 감지 키워드 (Target Keywords & Attributes) | 링크 감지 패턴 (`<a href>` 또는 `<iframe src>`) | 추출 스니펫 및 증빙 데이터 |
 | --- | --- | --- | --- | --- |
 | **① 의료진 소개 & 약력** | **7점** | `의료진`, `원장`, `대표원장`, `전문의`, `의사소개`, `약력`, `doctor`, `physician` *(+ img alt 태그 포함)* | `doctor`, `intro`, `staff`, `member`, `medical`, `profile`, `about` | • 약력/소개 문맥 140자 스니펫<br/>• 의료진 소개 페이지 내부 링크 URL |
@@ -72,6 +164,7 @@
 | **④ 유튜브 영상/채널** | **6점** | `유튜브`, `youtube.com`, `youtu.be`, `TV` | `youtube.com`, `youtu.be`, `youtube.com/embed/` (iframe 포함) | • 영상 설명/제목 스니펫<br/>• 실제 유튜브 채널/동영상 URL |
 
 #### 핵심 파싱 알고리즘
+
 ```typescript
 // 1. 키워드 매칭 주변 140자 문맥 스니펫 발췌 (img alt 태그 내용 포함)
 function extractSnippet(cleanText: string, keywords: string[], maxLen = 140): string {
@@ -173,11 +266,10 @@ CREATE TABLE public.trust_signal_audits (
 ---
 
 ## 📑 리포트 연계 가이드 (1페이지 완성형 구조)
+
 - **리포트 5페이지 (GEO Readiness & 신뢰도 진단 — 1페이지 완결)**:
   - 상단: 52% 도넛 차트 및 A/B/C/D 4대 카드 현황
   - 중단: **4대 영역별 점수 산정 근거 (Rationale) & 핵심 개선 방안 (Action Plan) 원페이지 통합 요약 테이블**
   - 하단: 최단기 우수 등급(85점↑) 달성을 위한 종합 액션 가이드 박스
 - **리포트 6페이지 (Trust Signal Audit)**: C(신뢰 콘텐츠 4대 자산) & D(기술적 가독성) 12개 점검 리스트 및 실재 텍스트/링크 증빙 출력.
 - **리포트 7페이지 (Action Priority)**: 미달된 항목 중 개선 효과가 가장 높은 **5대 핵심 개선 과제(Action Plan)** 자동 산출.
-
-

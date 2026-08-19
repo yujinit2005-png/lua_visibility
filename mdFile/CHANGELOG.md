@@ -1,5 +1,15 @@
-## [v1.0.7] - 2026-08-19
+## [v1.0.8] - 2026-08-19
 
+### ✨ 신규 기능 추가 및 버그 수정 (New Features & Bug Fixes)
+- **신뢰 콘텐츠 4대 자산 크롤링 로직 고도화 및 안티봇/CORS 우회 로직 적용 (`trustSignal.ts`, `vite.config.ts`)**:
+  - `trustSignal.ts` 내의 크롤링 봇이 Cafe24 등 국내 호스팅사의 안티봇 로직(첫 접속 시 빈 페이지 반환 후 강제 새로고침 유도)을 돌파할 수 있도록 **Double-Fetch (세션 쿠키 탈취 후 2차 재전송)** 알고리즘을 도입.
+  - 브라우저 클라이언트 단의 엄격한 CORS 보안 정책과 Cloudflare의 무료 프록시(`allorigins.win`) IP 차단 문제를 원천 해결하기 위해, 로컬 개발 환경(`vite.config.ts`) 자체에 **백엔드 프록시 미들웨어(`/api-proxy`)를 직접 내장**. 클라이언트가 아닌 서버(Node.js) 레벨에서 브라우저를 완벽 위장하여 웹사이트를 긁어오도록 통신 구조 전면 개편.
+- **리포트 7페이지 기술적 웹 가독성 지표 렌더링 동기화 오류 수정 (`reportGenerator.ts`)**:
+  - 기존 하드코딩되어 있던 점수 및 `HTTPS 보안`, `Title/Meta`, `텍스트 분량`, `Sitemap` 렌더링 텍스트를 실시간 진단 데이터(`rawItems`) 기반 동적 바인딩 로직으로 완벽 교체하여 UI 정합성 보장.
+- **Schema.org 구조화 데이터 가이드라인 포맷팅 (`GEO Trust 점수기준.md`)**:
+  - MedicalClinic / Hospital 스키마 등에 대한 마크다운 서식을 깔끔하게 재정비.
+
+## [v1.0.7] - 2026-08-19
 ### ✨ 신규 기능 추가 및 개선 (New Features & Improvements)
 - **리포트 5페이지 (Naver Dual Visibility) 데이터 정확도 개선 및 UI 최적화 (`reportGenerator.ts`, `providers.ts`)**:
   - 네이버 스마트플레이스 순위 실측 시 병원명(동의어 포함) 매칭에 기반하여 정확한 노출 랭킹(`naverRankPosition`)을 원본 그대로 계산 및 할당하여 데이터 정합성 보장(오판정 82위 버그 해결).
