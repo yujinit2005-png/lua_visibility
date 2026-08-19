@@ -425,8 +425,12 @@ export const generateAndUploadReport = async (
 
   const naverWebVers = allWebVers?.filter(v => v.platform?.toLowerCase() === 'naver');
   const naverVIds = naverWebVers?.map(nv => nv.id) || [];
-  let webAnswers: any[] = allWebAnswers.filter(wa => naverVIds.includes(wa.verification_id));
-  let hasNaverCrawling = webAnswers.length > 0;
+  const naverWebAnswers: any[] = allWebAnswers.filter(wa => naverVIds.includes(wa.verification_id));
+  const hasNaverCrawling = naverWebAnswers.length > 0;
+
+  const aiWebVers = allWebVers?.filter(v => v.platform?.toLowerCase() !== 'naver') || [];
+  const aiVIds = aiWebVers.map(v => v.id);
+  const aiWebAnswers: any[] = allWebAnswers.filter(wa => aiVIds.includes(wa.verification_id));
 
   const includeNaver = hasNaverApi && hasNaverCrawling;
 
@@ -451,10 +455,10 @@ export const generateAndUploadReport = async (
     };
   });
 
-  const webProvidersSet = Array.from(new Set(allWebVers?.map(v => v.platform) || []));
-  const webModelStats: ModelStat[] = webProvidersSet.map(prov => {
-    const vIds = allWebVers?.filter(v => v.platform === prov).map(v => v.id) || [];
-    const provAns = allWebAnswers.filter(a => vIds.includes(a.verification_id));
+  const aiWebProvidersSet = Array.from(new Set(aiWebVers.map(v => v.platform)));
+  const webModelStats: ModelStat[] = aiWebProvidersSet.map(prov => {
+    const vIds = aiWebVers.filter(v => v.platform === prov).map(v => v.id) || [];
+    const provAns = aiWebAnswers.filter(a => vIds.includes(a.verification_id));
     const total = provAns.length || 1;
     const mentions = provAns.filter(a => Boolean(a.web_mentioned || a.is_our_hospital)).length;
     return {
@@ -604,7 +608,7 @@ export const generateAndUploadReport = async (
     });
   });
 
-  webAnswers.forEach(wa => {
+  aiWebAnswers.forEach(wa => {
     const detected = extractCompetitorsFromWebAnswer(wa);
     detected.forEach(comp => {
       compHitsWeb[comp] = (compHitsWeb[comp] || 0) + 1;
@@ -621,7 +625,7 @@ export const generateAndUploadReport = async (
   const top4Web = getTopComps(compHitsWeb, 4);
 
   const totalApiCount = aiAnsList.length || 10;
-  const totalWebCount = webAnswers.length || 10;
+  const totalWebCount = aiWebAnswers.length || 10;
 
   const apiComparisons: Array<[string, number]> = [[hospitalName, overallMention]];
   top4Api.forEach(([cName, hits]) => apiComparisons.push([cName, Number((hits / totalApiCount).toFixed(2))]));
@@ -667,10 +671,10 @@ export const generateAndUploadReport = async (
     page2Interp = `현재 <b>${topCompName}</b>(${pct(topCompRate)}) 대비 귀 병원의 AI 노출 점유율(${pct(ourRate)})이 낮게 나타나고 있습니다.`;
   }
 
-  // Page 3 relies purely on crawling data (webAnswers)
-  const queries = Array.from(new Set(webAnswers.map(wa => wa.query)));
+  // Page 3 relies purely on AI crawling data (aiWebAnswers)
+  const queries = Array.from(new Set(aiWebAnswers.map(wa => wa.query)));
   const oppItems: OppItem[] = queries.map(q => {
-    const qAns = webAnswers.filter(wa => wa.query === q);
+    const qAns = aiWebAnswers.filter(wa => wa.query === q);
     const qTotal = qAns.length || 1;
     const ourMentions = qAns.filter(wa => wa.web_mentioned || wa.is_our_hospital).length;
     const qOurRate = Number((ourMentions / qTotal).toFixed(2));
@@ -894,10 +898,10 @@ export const generateAndUploadReport = async (
     else if (placeScore >= 40) { placeStatus = "MODERATE"; placeColor = "#d97706"; }
 
     // B: 콘텐츠 점유율
-    const webTotal = webAnswers.length || 1;
+    const webTotal = naverWebAnswers.length || 1;
     const scanTotal = webTotal * 10;
-    const ourContents = webAnswers.filter(w => w.web_mentioned).length;
-    const compContents = webAnswers.filter(w => w.web_competitors && w.web_competitors.length > 0).length;
+    const ourContents = naverWebAnswers.filter(w => w.web_mentioned).length;
+    const compContents = naverWebAnswers.filter(w => w.web_competitors && w.web_competitors.length > 0).length;
     const thirdParty = Math.max(0, scanTotal - ourContents - compContents);
 
     const contentScore = Math.round((ourContents / webTotal) * 100);
@@ -926,7 +930,7 @@ export const generateAndUploadReport = async (
        `;
     }).join('');
 
-    const contentKeywords = webAnswers.slice(0, 5).map(wa => {
+    const contentKeywords = naverWebAnswers.slice(0, 5).map(wa => {
        const isOurs = wa.web_mentioned || wa.is_our_hospital;
        const statusText = isOurs ? '노출' : '미노출';
        const w = isOurs ? 80 : 15;
