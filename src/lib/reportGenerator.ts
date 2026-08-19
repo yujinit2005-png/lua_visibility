@@ -451,9 +451,27 @@ export const generateAndUploadReport = async (
     };
   });
 
+  const webProvidersSet = Array.from(new Set(allWebVers?.map(v => v.platform) || []));
+  const webModelStats: ModelStat[] = webProvidersSet.map(prov => {
+    const vIds = allWebVers?.filter(v => v.platform === prov).map(v => v.id) || [];
+    const provAns = allWebAnswers.filter(a => vIds.includes(a.verification_id));
+    const total = provAns.length || 1;
+    const mentions = provAns.filter(a => Boolean(a.web_mentioned || a.is_our_hospital)).length;
+    return {
+      name: prov,
+      mention_rate: Number((mentions / total).toFixed(2)),
+      recommend_rate: 0,
+      top_rate: 0
+    };
+  });
+
   const overallMention = modelStats.length > 0
     ? Number((modelStats.reduce((acc, m) => acc + m.mention_rate, 0) / modelStats.length).toFixed(2))
     : (run?.overall_mention_rate ? run.overall_mention_rate / 100 : 0.79);
+
+  const webOverallMention = webModelStats.length > 0
+    ? Number((webModelStats.reduce((acc, m) => acc + m.mention_rate, 0) / webModelStats.length).toFixed(2))
+    : 0;
 
   const overallRecommend = modelStats.length > 0
     ? Number((modelStats.reduce((acc, m) => acc + m.recommend_rate, 0) / modelStats.length).toFixed(2))
@@ -516,16 +534,44 @@ export const generateAndUploadReport = async (
   };
 
   const extractCompetitorsFromWebAnswer = (wa: any): string[] => {
-    let detected: string[] = [];
+    const detected: string[] = [];
+    const answerText = wa.web_answer_text || wa.web_raw_text || '';
+    const normAnswer = answerText.toLowerCase().replace(/[\s\-_]/g, '');
+
+    if (configCompetitors.length > 0) {
+      for (const comp of configCompetitors) {
+        const cleanComp = comp.replace(/^["']+|["']+$/g, '').trim();
+        if (!cleanComp) continue;
+        const normComp = cleanComp.toLowerCase().replace(/[\s\-_]/g, '');
+        
+        if (ourAliases.some(alias => {
+          const na = alias.replace(/[\s\-_]/g, '');
+          return na === normComp || normComp.includes(na);
+        })) continue;
+
+        const foundInText = normComp.length >= 2 && normAnswer.includes(normComp);
+        let foundInField = false;
+        if (wa.web_competitors) {
+          try {
+            const rawComps = parseList(wa.web_competitors);
+            foundInField = rawComps.some(rc => {
+              const nrc = rc.toLowerCase().replace(/[\s\-_]/g, '');
+              return nrc === normComp || nrc.includes(normComp) || normComp.includes(nrc);
+            });
+          } catch (e) {}
+        }
+
+        if ((foundInText || foundInField) && !detected.includes(cleanComp)) {
+          detected.push(cleanComp);
+        }
+      }
+      return detected;
+    }
+
     if (wa.web_competitors) {
       try {
-        let rawComps: string[] = [];
-        if (typeof wa.web_competitors === 'string') {
-          rawComps = JSON.parse(wa.web_competitors);
-        } else if (Array.isArray(wa.web_competitors)) {
-          rawComps = wa.web_competitors;
-        }
-        rawComps.forEach((c: string) => {
+        const rawComps = parseList(wa.web_competitors);
+        rawComps.forEach(c => {
           const clean = c.replace(/^["']+|["']+$/g, '').trim();
           const lower = clean.toLowerCase();
           if (GENERIC_EXCLUDE.has(clean)) return;
@@ -591,8 +637,6 @@ export const generateAndUploadReport = async (
     }
   }
 
-  const webOurMentions = webAnswers.filter(wa => wa.web_mentioned || wa.is_our_hospital).length;
-  const webOverallMention = Number((webOurMentions / totalWebCount).toFixed(2));
   const webComparisons: Array<[string, number]> = [[hospitalName, webOverallMention]];
   top4Web.forEach(([cName, hits]) => webComparisons.push([cName, Number((hits / totalWebCount).toFixed(2))]));
   if (webComparisons.length < 5) {
@@ -715,20 +759,45 @@ export const generateAndUploadReport = async (
     <div class="pagesub">실제 환자 질문을 주요 AI 채널에 1회씩 측정한 언급·추천·상위 노출 결과입니다. (단회측정 · 일관성 미검증)</div>
     
     <div class="sec"><span class="num">A</span> AI 채널별 노출률 비교</div>
-    ${drawBarChart(modelStats.map(m => [m.name, m.mention_rate]))}
-
-    <div style="display:flex; gap:12px; margin-top:20px; margin-bottom:24px;">
-      <div style="flex:1; border:1px solid #e7ebee; border-radius:8px; padding:20px 0; text-align:center; background:#fff;">
-        <div style="font-size:26px; font-weight:900; color:var(--orange);">${pct(overallMention)}</div>
-        <div style="font-size:10.5px; color:var(--muted); margin-top:6px; font-weight:700;">평균 AI 언급률</div>
+    <div style="display:flex; gap:16px;">
+      <div style="flex:1;">
+        <div style="font-size:12px; font-weight:800; color:var(--navy); margin-bottom:8px;">AI 학습 지표 (API 기준)</div>
+        ${drawBarChart(modelStats.map(m => [m.name, m.mention_rate]))}
+        
+        <div style="display:flex; gap:8px; margin-top:20px; margin-bottom:24px;">
+          <div style="flex:1; border:1px solid #e7ebee; border-radius:8px; padding:16px 0; text-align:center; background:#fff;">
+            <div style="font-size:20px; font-weight:900; color:var(--orange);">${pct(overallMention)}</div>
+            <div style="font-size:9.5px; color:var(--muted); margin-top:6px; font-weight:700;">평균 AI 언급률</div>
+          </div>
+          <div style="flex:1; border:1px solid #e7ebee; border-radius:8px; padding:16px 0; text-align:center; background:#fff;">
+            <div style="font-size:20px; font-weight:900; color:var(--orange);">${pct(overallRecommend)}</div>
+            <div style="font-size:9.5px; color:var(--muted); margin-top:6px; font-weight:700;">추천 포함률</div>
+          </div>
+          <div style="flex:1; border:1px solid #e7ebee; border-radius:8px; padding:16px 0; text-align:center; background:#fff;">
+            <div style="font-size:20px; font-weight:900; color:var(--orange);">${pct(overallTop)}</div>
+            <div style="font-size:9.5px; color:var(--muted); margin-top:6px; font-weight:700;">상위 노출률</div>
+          </div>
+        </div>
       </div>
-      <div style="flex:1; border:1px solid #e7ebee; border-radius:8px; padding:20px 0; text-align:center; background:#fff;">
-        <div style="font-size:26px; font-weight:900; color:var(--orange);">${pct(overallRecommend)}</div>
-        <div style="font-size:10.5px; color:var(--muted); margin-top:6px; font-weight:700;">추천 포함률</div>
-      </div>
-      <div style="flex:1; border:1px solid #e7ebee; border-radius:8px; padding:20px 0; text-align:center; background:#fff;">
-        <div style="font-size:26px; font-weight:900; color:var(--orange);">${pct(overallTop)}</div>
-        <div style="font-size:10.5px; color:var(--muted); margin-top:6px; font-weight:700;">상위 노출률</div>
+      
+      <div style="flex:1;">
+        <div style="font-size:12px; font-weight:800; color:var(--navy); margin-bottom:8px;">AI 웹서치 지표 (크롤링 기준)</div>
+        ${drawBarChart(webModelStats.map(m => [m.name, m.mention_rate]))}
+        
+        <div style="display:flex; gap:8px; margin-top:20px; margin-bottom:24px;">
+          <div style="flex:1; border:1px solid #e7ebee; border-radius:8px; padding:16px 0; text-align:center; background:#fff;">
+            <div style="font-size:20px; font-weight:900; color:var(--orange);">${pct(webOverallMention)}</div>
+            <div style="font-size:9.5px; color:var(--muted); margin-top:6px; font-weight:700;">평균 웹 언급률</div>
+          </div>
+          <div style="flex:1; border:1px dashed #cbd5e1; border-radius:8px; padding:16px 0; text-align:center; background:#f8fafc;">
+            <div style="font-size:16px; font-weight:900; color:#94a3b8;">-</div>
+            <div style="font-size:9.5px; color:#94a3b8; margin-top:6px; font-weight:700;">추천 (API전용)</div>
+          </div>
+          <div style="flex:1; border:1px dashed #cbd5e1; border-radius:8px; padding:16px 0; text-align:center; background:#f8fafc;">
+            <div style="font-size:16px; font-weight:900; color:#94a3b8;">-</div>
+            <div style="font-size:9.5px; color:#94a3b8; margin-top:6px; font-weight:700;">상위 (API전용)</div>
+          </div>
+        </div>
       </div>
     </div>
 
