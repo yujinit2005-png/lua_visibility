@@ -345,7 +345,7 @@ export const generateAndUploadReport = async (
 
   const { data: hospConfig } = await supabase
     .from('hospital_config_versions')
-    .select('aliases, competitors, naver_queries')
+    .select('aliases, competitors, queries, naver_queries')
     .eq('hospital_code', hospitalCode)
     .order('version', { ascending: false })
     .limit(1)
@@ -384,12 +384,16 @@ export const generateAndUploadReport = async (
 
   let ourAliases: string[] = [hospitalName, hospitalName.replace(/(병원|한방병원|의원)$/, '')];
   let configCompetitors: string[] = [];
+  let queriesList: string[] = [];
+  let naverQueriesList: string[] = [];
 
   if (hospConfig) {
     const parsedAliases = parseList(hospConfig.aliases);
     if (parsedAliases.length > 0) ourAliases = [...ourAliases, ...parsedAliases];
     const parsedComps = parseList(hospConfig.competitors);
     if (parsedComps.length > 0) configCompetitors = parsedComps;
+    queriesList = parseList(hospConfig.queries);
+    naverQueriesList = parseList(hospConfig.naver_queries);
   }
   ourAliases = Array.from(new Set(ourAliases.filter(Boolean))).map(a => a.trim().toLowerCase());
   configCompetitors = Array.from(new Set(configCompetitors.filter(Boolean)));
@@ -888,8 +892,17 @@ export const generateAndUploadReport = async (
     const top3 = naverAnsList.filter(a => a.first_position && a.first_position <= 3).length;
     const top5 = naverAnsList.filter(a => a.first_position && a.first_position <= 5).length;
     const top10 = naverAnsList.filter(a => a.first_position && a.first_position <= 10).length;
-    const unranked = naverAnsList.filter(a => !a.first_position || a.first_position > 10).length;
-    const placeScore = Math.round((top10 / naverTotal) * 100);
+    const exposed = naverAnsList.filter(a => a.first_position && a.first_position > 0).length;
+    const unranked = naverAnsList.filter(a => !a.first_position || a.first_position === 0).length;
+    const placeScore = Math.round((exposed / naverTotal) * 100);
+
+    const getShortQuery = (fullQ: string) => {
+      const idx = queriesList.findIndex(q => q.trim() === fullQ.trim());
+      if (idx >= 0 && idx < naverQueriesList.length && naverQueriesList[idx]) {
+        return naverQueriesList[idx];
+      }
+      return fullQ;
+    };
 
     let placeStatus = "NEEDS IMPROVEMENT";
     let placeColor = "#E45928";
@@ -916,12 +929,13 @@ export const generateAndUploadReport = async (
 
     const topKeywords = naverAnsList.slice(0, 10).map(a => {
        const rank = a.first_position;
-       const rankText = rank && rank <= 10 ? `${rank}위` : '미노출';
-       const w = rank && rank <= 10 ? Math.max(15, 100 - (rank * 8)) : 10;
-       const barColor = (rank && rank <= 3) ? 'linear-gradient(90deg, #E45928, #17436A)' : (rank && rank <= 10) ? '#475569' : '#e2e8f0';
+       const rankText = rank ? `${rank}위` : '미노출';
+       const w = rank ? Math.max(15, 100 - (rank * 2)) : 10;
+       const barColor = (rank && rank <= 3) ? 'linear-gradient(90deg, #E45928, #17436A)' : rank ? '#475569' : '#e2e8f0';
+       const dispQ = getShortQuery(a.query);
        return `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px;">
-          <div style="width:110px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${a.query}">${a.query}</div>
+          <div style="width:110px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${dispQ}">${dispQ}</div>
           <div style="flex:1; height:12px; background:#f1f5f9; border-radius:6px; overflow:hidden;">
             <div style="width:${w}%; height:100%; background:${barColor};"></div>
           </div>
@@ -935,9 +949,10 @@ export const generateAndUploadReport = async (
        const statusText = isOurs ? '노출' : '미노출';
        const w = isOurs ? 80 : 15;
        const barColor = isOurs ? 'linear-gradient(90deg, #E45928, #17436A)' : '#e2e8f0';
+       const dispQ = getShortQuery(wa.query);
        return `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px;">
-          <div style="width:110px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${wa.query}">${wa.query}</div>
+          <div style="width:110px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${dispQ}">${dispQ}</div>
           <div style="flex:1; height:12px; background:#f1f5f9; border-radius:6px; overflow:hidden;">
             <div style="width:${w}%; height:100%; background:${barColor};"></div>
           </div>
