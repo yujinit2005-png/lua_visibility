@@ -94,8 +94,7 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt }
-          ],
-          temperature: 0.1
+          ]
         })
       });
       if (response.ok) break;
