@@ -339,7 +339,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       await supabase.from('hospitals').delete().eq('hospital_code', selectedHospitalCode);
 
       alert('삭제되었습니다.');
-      onRefreshHospitals();
+      onRefreshHospitals?.();
       fetchHospitals();
     } catch (e: any) {
       alert(`삭제 오류: ${e.message}`);
@@ -404,7 +404,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
 
           if (!fbErr) {
             alert('⚠️ DB에 naver_queries 컬럼이 없어 기존 항목들만 우선 저장되었습니다.\n\n네이버 질문셋도 함께 저장하려면 Supabase SQL Editor에서 아래 쿼리를 실행해 주세요:\n\nALTER TABLE public.hospital_config_versions ADD COLUMN IF NOT EXISTS naver_queries text;');
-            onRefreshHospitals();
+            onRefreshHospitals?.();
             fetchHospitals();
             return;
           }
@@ -433,7 +433,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
           const { error: fbErr } = await supabase.from('hospital_config_versions').insert(fallbackPayload);
           if (!fbErr) {
             alert('⚠️ DB에 naver_queries 컬럼이 없어 기존 항목들만 우선 저장되었습니다.\n\n네이버 질문셋도 함께 저장하려면 Supabase SQL Editor에서 아래 쿼리를 실행해 주세요:\n\nALTER TABLE public.hospital_config_versions ADD COLUMN IF NOT EXISTS naver_queries text;');
-            onRefreshHospitals();
+            onRefreshHospitals?.();
             fetchHospitals();
             return;
           }
@@ -443,7 +443,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       }
 
       alert('✅ 성공적으로 저장되었습니다!');
-      onRefreshHospitals();
+      onRefreshHospitals?.();
       fetchHospitals();
     } catch (e: any) {
       if (e.message?.includes('naver_queries')) {
@@ -505,7 +505,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
         const { error: fbErr } = await supabase.from('hospital_config_versions').insert(fallbackPayload);
         if (!fbErr) {
           alert(`⚠️ DB에 naver_queries 컬럼이 없어 기존 항목들만 새 버전 [${newVer}]으로 저장되었습니다.\n\n네이버 질문셋도 함께 저장하려면 Supabase SQL Editor에서 아래 쿼리를 실행해 주세요:\n\nALTER TABLE public.hospital_config_versions ADD COLUMN IF NOT EXISTS naver_queries text;`);
-          onRefreshHospitals();
+          onRefreshHospitals?.();
           fetchHospitals();
           return;
         }
@@ -514,7 +514,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       if (verErr) throw verErr;
 
       alert(`✅ 새 버전 [${newVer}]으로 저장되었습니다!`);
-      onRefreshHospitals();
+      onRefreshHospitals?.();
       fetchHospitals();
     } catch (e: any) {
       if (e.message?.includes('naver_queries')) {
