@@ -9,7 +9,7 @@
 
 | 프로바이더 | 주력 모델 | 특징 및 연결 방식 |
 |---|---|---|
-| **OpenAI** | `gpt-4o-mini`, `gpt-4o` | Vite 역방향 프록시(`/api-openai`) 경유 브라우저 CORS 회피 |
+| **OpenAI** | `gpt-4o-search-preview` | 실시간 웹 검색 내장 모델, 환각 방지 시스템 프롬프트 및 Vite 역방향 프록시(`/api-openai`) 경유 |
 | **Google Gemini** | `gemini-2.0-flash` | 503 과부하 시 대체 모델(`gemini-1.5-flash`, `gemini-1.5-pro`) 자동 Fallback |
 | **Perplexity** | `sonar`, `sonar-pro` | 실시간 웹 검색 기반 답변 및 인용 출처(Citations) 수집 |
 | **Anthropic** | `claude-3-5-sonnet` | Web Search Tool 연동 실시간 검색 및 엄격 추천 신뢰도 지표화 |
