@@ -44,8 +44,8 @@ const LoginPage: React.FC = () => {
         
         {/* Header Section */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-tr from-orange-500 to-amber-500 text-white rounded-2xl shadow-lg mb-4">
-            <span className="text-2xl font-black italic tracking-tighter">lCA</span>
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-4 overflow-hidden">
+            <img src="/logo.ico" alt="LUVIS Logo" className="w-full h-full object-cover" />
           </div>
           <h1 className="text-2xl font-extrabold text-slate-900 flex items-center justify-center gap-2">
             루비스 (LUVIS)

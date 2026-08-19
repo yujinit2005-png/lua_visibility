@@ -27,9 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
       
       {/* Left: Brand / Logo */}
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-tr from-orange-500 to-amber-500 text-white font-black italic flex items-center justify-center text-base rounded shadow-sm">
-          lCA
-        </div>
+        <img src="/logo.ico" alt="LUVIS Logo" className="w-8 h-8 rounded shadow-sm object-cover" />
         <div className="flex items-center gap-2">
           <span className="font-extrabold text-base tracking-tight text-white">
             루비스 (LUVIS)
