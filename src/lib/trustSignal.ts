@@ -86,40 +86,19 @@ export interface TrustSignalFullReport {
 // CORS proxy helper
 const fetchViaProxy = async (url: string): Promise<string | null> => {
   try {
-    const fetchOptions: RequestInit = {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cache-Control': 'max-age=0'
-      },
-      signal: AbortSignal.timeout(8000)
-    };
-    
-    // 1. Direct fetch 시도
-    let directRes = await fetch(url, fetchOptions);
-    let html = await directRes.text();
-
-    // 새로고침(리다이렉트/안티봇) 로직이 의심되는 경우 쿠키를 담아서 2차 요청
-    const isSuspicious = html.length < 2000 || html.includes('location.reload') || html.includes('location.href=') || html.includes('location.replace');
-    const setCookie = directRes.headers.get('set-cookie');
-    
-    if (isSuspicious) {
-      if (setCookie) {
-        (fetchOptions.headers as Record<string, string>)['Cookie'] = setCookie;
-      }
-      const secondRes = await fetch(url, fetchOptions);
-      html = await secondRes.text();
+    // 1. Local Vite Proxy 시도 (가장 안정적, 브라우저 CORS 회피 및 쿠키 자동 처리)
+    const localProxyUrl = `/api-proxy?url=${encodeURIComponent(url)}`;
+    const res = await fetch(localProxyUrl, { method: 'GET', signal: AbortSignal.timeout(10000) });
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.length > 0) return text;
     }
-    
-    if (html && html.length > 0) return html;
   } catch (e) {
-    // fallback to proxy
+    // fallback
   }
 
   try {
-    // 2. Proxy fetch 시도 (최후의 수단)
+    // 2. 외부 프록시 (최후의 수단, Cloudflare 등에 차단될 확률 높음)
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
     const res = await fetch(proxyUrl, { method: 'GET', signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
