@@ -20,6 +20,7 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
     'https://api.openai.com/v1/chat/completions'
   ];
 
+  
   let response: Response | null = null;
   let lastErr = '';
 
@@ -59,6 +60,14 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
   }
   
   const data = await response.json();
+  
+  // 토큰 사용량 콘솔 출력
+  console.log('[OpenAI Usage]', {
+    prompt_tokens: data.usage?.prompt_tokens,
+    completion_tokens: data.usage?.completion_tokens,
+    total_tokens: data.usage?.total_tokens
+  });
+
   const choice = data.choices?.[0];
   const text = choice?.message?.content || '';
 
