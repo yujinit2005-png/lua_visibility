@@ -36,8 +36,8 @@ const PLATFORM_LIST = [
   { key: 'ChatGPT',   providerKey: 'openai',     label: 'ChatGPT',      color: '#10A37F' },
   { key: 'Gemini',    providerKey: 'gemini',      label: 'Gemini',       color: '#4285F4' },
   { key: 'Perplexity',providerKey: 'perplexity',  label: 'Perplexity',   color: '#7C3AED' },
-  { key: 'Naver',     providerKey: 'naver',       label: 'Naver API',    color: '#03C75A' },
   { key: 'Claude',    providerKey: 'anthropic',   label: 'Claude',       color: '#D97706' },
+  { key: 'Naver',     providerKey: 'naver',       label: 'Naver API',    color: '#03C75A' },
 ];
 
 const GENERIC_EXCLUDE_WORDS = new Set(['병원', '의원', '한방병원', '한의원', '한방', '센터', '클리닉', '의료원', '진료', '치료']);

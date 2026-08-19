@@ -53,35 +53,37 @@ export const analyzeAnswer = (
     }
   }
 
-  // 2) 경쟁 병원 집계 (등록된 경쟁사 + 정규식 자동 감지)
+  // 2) 경쟁 병원 집계 (등록된 경쟁사가 있으면 등록된 목록만 검사, 없을 때만 자동 감지)
   const GENERIC_HOSP_NOUNS = new Set([
     '한방병원', '한의원', '병원', '의원', '종합병원', '대학병원', '요양병원', 
     '전문병원', '일반병원', '치과의원', '피부과의원', '상급종합병원', '클리닉', '센터', '진료소', '보건소'
   ]);
 
-  for (const comp of competitors) {
-    const nc = normalizeText(comp);
-    if (nc && !GENERIC_HOSP_NOUNS.has(comp) && normAnswer.includes(nc)) {
-      const isOurAlias = sortedAliases.some(a => normalizeText(a) === nc);
-      if (!isOurAlias && !result.competitors_found.includes(comp)) {
-        result.competitors_found.push(comp);
+  if (competitors && competitors.length > 0) {
+    for (const comp of competitors) {
+      const cleanComp = comp.replace(/^["']+|["']+$/g, '').trim();
+      const nc = normalizeText(cleanComp);
+      if (nc && !GENERIC_HOSP_NOUNS.has(cleanComp) && normAnswer.includes(nc)) {
+        const isOurAlias = sortedAliases.some(a => normalizeText(a) === nc);
+        if (!isOurAlias && !result.competitors_found.includes(cleanComp)) {
+          result.competitors_found.push(cleanComp);
+        }
       }
     }
-  }
-
-  // 2-2) 답변 원문에서 등장하는 고유 병원 이름 자동 감지 (일반 명사 단독 제외)
-  const hospMatches = answerText.match(/[가-힣]{2,10}(한방병원|한의원|병원|의원|내과의원|정형외과)/g);
-  if (hospMatches) {
-    hospMatches.forEach(hName => {
-      const trimmed = hName.trim();
-      const nh = normalizeText(trimmed);
-      // 일반 분류 명사이거나(예: '한방병원', '종합병원'), 우리 병원 별칭인 경우 제외
-      if (GENERIC_HOSP_NOUNS.has(trimmed)) return;
-      const isOurAlias = sortedAliases.some(a => normalizeText(a) === nh || nh.includes(normalizeText(a)));
-      if (!isOurAlias && !result.competitors_found.includes(trimmed)) {
-        result.competitors_found.push(trimmed);
-      }
-    });
+  } else {
+    // 2-2) 등록된 경쟁병원이 없을 때만 답변 원문에서 고유 병원 이름 자동 감지 (일반 명사 단독 제외)
+    const hospMatches = answerText.match(/[가-힣]{2,10}(한방병원|한의원|병원|의원|내과의원|정형외과|이비인후과)/g);
+    if (hospMatches) {
+      hospMatches.forEach(hName => {
+        const trimmed = hName.replace(/^["']+|["']+$/g, '').trim();
+        const nh = normalizeText(trimmed);
+        if (GENERIC_HOSP_NOUNS.has(trimmed)) return;
+        const isOurAlias = sortedAliases.some(a => normalizeText(a) === nh || nh.includes(normalizeText(a)));
+        if (!isOurAlias && !result.competitors_found.includes(trimmed)) {
+          result.competitors_found.push(trimmed);
+        }
+      });
+    }
   }
 
   // 3) 추천 판정 (휴리스틱): 언급되었고 추천 신호어가 있거나 목록/번호/플레이스 검색 형태인 경우
@@ -109,33 +111,78 @@ interface RunOptions {
   signal?: AbortSignal;
 }
 
+const parseList = (val: any): string[] => {
+  if (!val) return [];
+  if (Array.isArray(val)) {
+    return val.map(s => String(s).replace(/^["']+|["']+$/g, '').trim()).filter(Boolean);
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map(s => String(s).replace(/^["']+|["']+$/g, '').trim()).filter(Boolean);
+        }
+      } catch (e) {}
+    }
+    return trimmed
+      .split(/[\n,]+/)
+      .map(s => s.replace(/^["']+|["']+$/g, '').trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
 export const executeRun = async (opts: RunOptions) => {
   const { hospitalCode, hospitalName, version, aiTools, apiKeys, appendLog, setStepStatus, queries, reps, signal } = opts;
 
-  // 병원 별칭 및 경쟁사 정보 조회 (DB 의존)
+  // 병원 별칭, 경쟁사 및 네이버 전용 질의어 정보 조회 (DB 의존)
   let aliases: string[] = [hospitalName || '', hospitalCode];
   let competitors: string[] = [];
+  let naverQueries: string[] = [];
 
   try {
-    const { data: verData } = await supabase
+    let verQuery = supabase
       .from('hospital_config_versions')
-      .select('aliases, competitors')
-      .eq('hospital_code', hospitalCode)
+      .select('aliases, competitors, naver_queries')
+      .eq('hospital_code', hospitalCode);
+
+    if (version) {
+      verQuery = verQuery.eq('version', version);
+    }
+
+    let { data: verData } = await verQuery
       .order('id', { ascending: false })
       .limit(1)
       .maybeSingle();
 
+    if (!verData) {
+      // fallback to latest version
+      const { data: latestVer } = await supabase
+        .from('hospital_config_versions')
+        .select('aliases, competitors, naver_queries')
+        .eq('hospital_code', hospitalCode)
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      verData = latestVer;
+    }
+
     if (verData) {
-      const parsedAliases = typeof verData.aliases === 'string' ? JSON.parse(verData.aliases) : (verData.aliases || []);
-      const parsedCompetitors = typeof verData.competitors === 'string' ? JSON.parse(verData.competitors) : (verData.competitors || []);
-      if (Array.isArray(parsedAliases)) aliases = [...aliases, ...parsedAliases];
-      if (Array.isArray(parsedCompetitors)) competitors = parsedCompetitors;
+      const parsedAliases = parseList(verData.aliases);
+      const parsedCompetitors = parseList(verData.competitors);
+      const parsedNaverQueries = parseList(verData.naver_queries);
+      if (parsedAliases.length > 0) aliases = [...aliases, ...parsedAliases];
+      if (parsedCompetitors.length > 0) competitors = parsedCompetitors;
+      if (parsedNaverQueries.length > 0) naverQueries = parsedNaverQueries;
     }
   } catch (e) {
     // fallback
   }
 
   aliases = Array.from(new Set(aliases.filter(Boolean)));
+  competitors = Array.from(new Set(competitors.filter(Boolean)));
 
   // Insert a new run into Supabase
   let runId: number | null = null;
@@ -189,6 +236,7 @@ export const executeRun = async (opts: RunOptions) => {
         const questionId = `Q${i + 1}`;
         const taskId = `T${String(totalTasks + 1).padStart(3, '0')}`;
         const taskStartTime = Date.now();
+        const customNaverQ = naverQueries[i] || '';
 
         appendLog(`▶ 질문 ${i + 1} (${questionId}): ${q}`);
         
@@ -202,8 +250,8 @@ export const executeRun = async (opts: RunOptions) => {
           } else if (tool === 'perplexity' && apiKeys.perplexity) {
             pRes = await callPerplexity(q, { apiKey: apiKeys.perplexity });
           } else if (tool === 'naver' && (apiKeys.naverId || apiKeys.naverSecret)) {
-            // Naver에는 aliases 전달 → title 엄격 일치 기반 순위 판정
-            pRes = await callNaverLocal(q, { clientId: apiKeys.naverId, clientSecret: apiKeys.naverSecret }, aliases);
+            // Naver에는 aliases 및 전용 질의어(customNaverQ) 전달
+            pRes = await callNaverLocal(q, { clientId: apiKeys.naverId, clientSecret: apiKeys.naverSecret }, aliases, customNaverQ);
           } else if (tool === 'anthropic' && apiKeys.anthropic) {
             pRes = await callAnthropic(q, { apiKey: apiKeys.anthropic });
           } else {
@@ -311,6 +359,36 @@ export const executeRun = async (opts: RunOptions) => {
     await supabase.from('runs').update({
       trust_report_json: JSON.stringify(trustReport)
     }).eq('id', runId);
+
+    // [신규] trust_signal_audits 테이블에 4대 영역 원천 세부 데이터(스니펫, 링크, 세부 점수) 적재
+    const auditPayload = {
+      run_id: Number(runId),
+      hospital_code: hospitalCode || null,
+      target_url: targetUrl || trustReport.url || 'http://localhost',
+      total_score: Number(trustReport.totalScore) || 0,
+      grade: trustReport.grade || '보통',
+      geo_rate: Number(trustReport.geoRate) || 0,
+      crawler_score: Number(trustReport.crawlerScore ?? trustReport.items?.[0]?.earned) || 0,
+      schema_score: Number(trustReport.schemaScore ?? trustReport.items?.[1]?.earned) || 0,
+      content_score: Number(trustReport.contentScore ?? trustReport.items?.[2]?.earned) || 0,
+      technical_score: Number(trustReport.technicalScore ?? trustReport.items?.[3]?.earned) || 0,
+      crawler_details: trustReport.crawlerDetails || [],
+      schema_details: trustReport.schemaDetails || {},
+      content_details: trustReport.contentDetails || {},
+      technical_details: trustReport.technicalDetails || {},
+      full_report_json: trustReport
+    };
+
+    const { error: auditErr } = await supabase
+      .from('trust_signal_audits')
+      .insert(auditPayload);
+
+    if (auditErr) {
+      appendLog(`  ❌ trust_signal_audits 저장 실패: ${auditErr.message}`);
+      console.error('trust_signal_audits insert error:', auditErr);
+    } else {
+      appendLog(`  ✔ trust_signal_audits 원천 데이터 DB 저장 성공 (Run #${runId})`);
+    }
   }
 
   appendLog(`  ✔ 홈페이지 Trust Signal 점검 완료 (점수: ${trustReport.totalScore}점 ${trustReport.grade}, GEO 준비도 Math.round(${trustReport.geoRate * 100})%)`);
@@ -410,27 +488,34 @@ export const executeRerun = async (opts: RerunOptions) => {
   // 별칭 및 경쟁사 정보 조회
   let aliases: string[] = [hospitalName || '', hospitalCode];
   let competitors: string[] = [];
+  let naverQueries: string[] = [];
+  let hospQueries: string[] = [];
 
   try {
     const { data: hospVers } = await supabase
       .from('hospital_config_versions')
-      .select('aliases, competitors')
+      .select('aliases, competitors, queries, naver_queries')
       .eq('hospital_code', hospitalCode)
       .order('id', { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (hospVers) {
-      const parsedAliases = typeof hospVers.aliases === 'string' ? JSON.parse(hospVers.aliases) : (hospVers.aliases || []);
-      const parsedCompetitors = typeof hospVers.competitors === 'string' ? JSON.parse(hospVers.competitors) : (hospVers.competitors || []);
-      if (Array.isArray(parsedAliases)) aliases = [...aliases, ...parsedAliases];
-      if (Array.isArray(parsedCompetitors)) competitors = parsedCompetitors;
+      const parsedAliases = parseList(hospVers.aliases);
+      const parsedCompetitors = parseList(hospVers.competitors);
+      const parsedQueries = parseList(hospVers.queries);
+      const parsedNaverQueries = parseList(hospVers.naver_queries);
+      if (parsedAliases.length > 0) aliases = [...aliases, ...parsedAliases];
+      if (parsedCompetitors.length > 0) competitors = parsedCompetitors;
+      if (parsedQueries.length > 0) hospQueries = parsedQueries;
+      if (parsedNaverQueries.length > 0) naverQueries = parsedNaverQueries;
     }
   } catch (e) {
     // fallback
   }
 
   aliases = Array.from(new Set(aliases.filter(Boolean)));
+  competitors = Array.from(new Set(competitors.filter(Boolean)));
 
   const { data: failedAnswers, error: ansError } = await supabase
     .from('answers')
@@ -460,6 +545,8 @@ export const executeRerun = async (opts: RerunOptions) => {
     const q = ans.query;
     const provider = ans.provider;
     const taskStartTime = Date.now();
+    const qIdx = hospQueries.findIndex(hq => hq === q);
+    const customNaverQ = qIdx !== -1 && naverQueries[qIdx] ? naverQueries[qIdx] : '';
     
     appendLog(`\n[${provider.toUpperCase()}] 재호출 중... (질문: ${q.substring(0, 15)}...)`);
     
@@ -473,8 +560,8 @@ export const executeRerun = async (opts: RerunOptions) => {
       } else if (provider === 'perplexity' && apiKeys.perplexity) {
         pRes = await callPerplexity(q, { apiKey: apiKeys.perplexity });
       } else if (provider === 'naver' && (apiKeys.naverId || apiKeys.naverSecret)) {
-        // Naver aliases 전달 → title 엄격 일치 기반 순위 판정
-        pRes = await callNaverLocal(q, { clientId: apiKeys.naverId, clientSecret: apiKeys.naverSecret }, aliases);
+        // Naver aliases 및 customNaverQ 전달 → title 엄격 일치 기반 순위 판정
+        pRes = await callNaverLocal(q, { clientId: apiKeys.naverId, clientSecret: apiKeys.naverSecret }, aliases, customNaverQ);
       } else if (provider === 'anthropic' && apiKeys.anthropic) {
         pRes = await callAnthropic(q, { apiKey: apiKeys.anthropic });
       } else {

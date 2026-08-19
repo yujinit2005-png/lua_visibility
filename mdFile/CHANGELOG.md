@@ -1,3 +1,51 @@
+## [v1.0.6] - 2026-08-19
+
+### ✨ 신규 기능 추가 (New Features)
+- **병원 마스타 & 질문 세트 내 네이버 API 전용 질문셋 탭 및 컬럼 확장 (`HospitalManagementModal.tsx`, `schema.sql`)**:
+  - `hospital_config_versions` 테이블에 `naver_queries` 컬럼 확장 지원.
+  - 병원정보 관리 모달에 `🟢 네이버 API 질의어 (전용 질문셋)` 탭 추가.
+- **질문 문구 기반 4단어 핵심 키워드 자동 분리 및 불러오기 (`extractNaverKeywordsFromQuery`)**:
+  - 기존 긴 서술형 질문 문구에서 종결어, 조사, 불용어를 정제하고 지역, 질환, 증상, 진료과 등 핵심 단어를 앞에서부터 순차적으로 최대 4개까지 자동 추출하는 알고리즘 구현.
+  - `[⚡ 질문에서 4단어 자동 분리 및 불러오기]` 버튼 제공 및 사용자 직접 수정/저장 지원.
+- **네이버 로컬 가시성 (Naver Dual Visibility) 평가 체계 독립 분리 및 설계서 작성 (`08_Naver_Dual_Visibility_설계서.md`, `0. 병원정보_질문관리_및_평가엔진_1.0_설계서.md`)**:
+  - 네이버 API(스마트플레이스) 및 웹 크롤링(바이럴 콘텐츠) 지표를 순수 생성형 AI 종합 AI Score 산정에서 분리.
+  - 플레이스 점유율(Place SOV) vs 콘텐츠 바이럴 점유율(Content SOV), 2x2 Dual Position Matrix, SOV 가로 Bar 차트로 구성된 독립 리포트 체계 명세화.
+- **AI 진단 도구 및 실측 플랫폼 내 Claude(클로드) 활성화 및 Naver 위치 전환 (`LeftPanel.tsx`, `RerunModal.tsx`, `WebVerificationModal.tsx`, `DashboardContext.tsx`)**:
+  - AI 진단 도구 4사를 `OpenAI (ChatGPT)`, `Gemini`, `Perplexity`, `Anthropic (Claude)`로 재배치하고 기본 활성화.
+  - 비활성화되어 있던 Claude 체크박스 및 API Key 입력 필드를 완전히 활성화하여 키 입력/저장/진단이 즉시 가능하도록 개선.
+  - 네이버는 AI 4사 뒤로 순서 조정 및 독립 로컬 가시성 평가 지표로 유지.
+- **메인 화면 병원/버전 선택값 ➔ 병원정보 질문세트관리 모달 자동 연동 (`HospitalManagementModal.tsx`, `Dashboard.tsx`, `LeftPanel.tsx`)**:
+  - 메인 화면 좌측 패널에서 선택된 대상 병원(`hospitalCode`) 및 질문 세트 버전(`version`)이 상단 [병원정보 질문세트관리] 버튼 클릭 시 모달에 100% 그대로 즉시 자동 연계되어 열리도록 개선.
+- **GEO Trust 4대 영역 원천 데이터 전용 테이블 (`trust_signal_audits`) 설계 및 텍스트 스니펫/링크 정밀 수집 (`trustSignal.ts`, `analyzer.ts`, `RerunModal.tsx`, `20260819_create_trust_signal_audits.sql`)**:
+  - `runs.trust_report_json` 단순 합산 저장 방식에서 나아가, 4대 영역별 점수/세부 항목과 **실제 감지된 원문 텍스트 스니펫(Snippet) 및 발견된 하이퍼링크(Link URL)**를 구조화하여 영구 저장하는 전용 스키마 구축.
+  - 메인 진단 실행 시뿐만 아니라 진단 재실행 모달 내 **`[📊 스텝 3,4번 재실행]` 버튼 클릭 시에도** 홈페이지 실측을 수행하고 `trust_signal_audits` 테이블에 완벽히 동기화 적재되도록 연동.
+  - 신뢰 콘텐츠 자산(의료진 약력, FAQ 질의응답, 건강칼럼/블로그 연동, 유튜브 링크)의 실재 여부와 증빙 데이터를 리포팅에 100% 활용할 수 있도록 고도화.
+  - `mdFile/GEO Trust 점수기준.md` 설계서에 4대 영역(A, B, C, D)의 정밀 파싱 기준, 텍스트 스니펫/링크 추출 알고리즘, Schema.org/기술 가독성 가점표를 최신 명세로 전면 업데이트.
+
+- **리포트 1, 2, 3페이지 오리지널 디자인/색감 완벽 복원 및 6페이지 이후 인쇄 잘림 현상 원천 해결 (`reportGenerator.ts`)**:
+  - **1, 2, 3페이지 원래 디자인/색감 복원**:
+    - 1페이지: 오리지널 히어로 배너 규격(`padding: 20mm 18mm 16mm`), 32px 타이틀, 골드 키커, 130px 대형 루비스 스코어 도넛 차트 및 스코어 그리드 복원.
+    - 2페이지: 오리지널 바 차트 규격(`height: 14px`, `fill: var(--teal)`) 및 하단 질문 세트 안내 회색 박스 문구 완벽 복원.
+    - 3페이지: 오리지널 `.opp` 카드 디자인 복원, 넘버링 배지(`Q1`, `Q2`) 및 따옴표 추가, 질문 수 10개 초과 시 2열 그리드(`two-col`) 자동 확장 적용.
+  - **6페이지 이후 인쇄 끊김 현상 해결**:
+    - HTML 태그 내 특수 문자 이스케이프 부재 및 브라우저 인쇄 엔진에서 `.page`의 `overflow: hidden`과 `max-height`로 인해 6페이지 이후가 잘리던 문제를 해소하고, `@page { size: A4; margin: 0; }` 및 `@media print` 전용 `page-break-after: always;`를 통해 1~9페이지 전체가 한 장씩 완벽하게 연속 출력되도록 CSS 정밀 최적화.
+- **네이버 로컬 가시성(Naver Dual Visibility) 5페이지 전체 UI 렌더링 및 실측 데이터 검증 로직 구현 (`reportGenerator.ts`)**:
+  - API 결괏값 테이블이 아닌 `web_verifications`와 `web_verification_answers` 테이블을 직접 조인(`ilike` 대소문자 무시) 조회하여 네이버 실측 크롤링 데이터 존재 여부를 정확히 판단하고 누락 없이 리포트가 출력되도록 버그 수정.
+  - 설계서(`08_Naver_Dual_Visibility_설계서.md`) 기반 5페이지 레이아웃을 A구역(플레이스 점유율 그라데이션 Bar 차트), B구역(콘텐츠 바이럴 점유율), C구역(Naver Dual Position Matrix 4분면 스캐터 플롯), D구역(경쟁사 비교 Bar 차트)으로 세분화하여 원본 레퍼런스 이미지와 100% 동일하게 구현 및 동적 데이터 바인딩.
+- **리포트 3페이지 질문 세트 `idx is not defined` 렌더링 크래시 오류 패치 (`reportGenerator.ts`)**:
+  - 질문 목록 렌더링을 위한 맵(`map`) 함수 스코프 내 질문 넘버링을 렌더링하는 과정에서 발생하던 크래시를 배열 인자 전달(`(o, idx)`) 구문으로 수정하여 완전 해결.
+- **리포트 2페이지 AI별 경쟁병원 비교 및 설명문구 동적화 (`reportGenerator.ts`)**:
+  - 병원 설정(`hospital_config_versions`)의 공식 등록 경쟁병원 목록(`competitors`)을 연동하여 타 진료과 무관 병원 제외.
+  - 등록된 경쟁병원 중 노출 빈도 상위 2개 병원만 선별하여 차트 표시.
+  - 귀 병원 노출률과 경쟁병원 노출률 비교에 따른 동적 인터프리테이션 문구(열세/우위/경합/미노출) 적용.
+- **리포트 3페이지 질문 세트별 공략 우선순위 지형 필터링 (`reportGenerator.ts`)**:
+  - 질문별 `경쟁 우세:` 칩에 공식 경쟁병원 목록에 등록된 병원만 최대 상위 5개까지 노출되도록 제한.
+  - 따옴표 및 불필요한 기호 정제.
+- **병원 마스타 질문 텍스트 자동 정제 처리 (`HospitalManagementModal.tsx`)**:
+  - 병원 설정 조회/저장 시 JSON 코드 형태로 복사된 불필요한 앞뒤 따옴표(`"`, `'`) 및 끝 콤마(`,`)를 자동으로 제거하여 타 병원 데이터와 동일한 순수 텍스트 줄바꿈 형태로 표시되도록 파서 개선.
+- **답변 분석기 공식 경쟁병원 엄격 매칭 (`analyzer.ts`)**:
+  - 공식 경쟁병원 목록이 지정되어 있을 때 등록된 병원만 정밀 매칭하도록 수정하여 불필요한 일반 의원 오탐 방지.
+
 ## [v1.0.5] - 2026-08-14
 
 ### ✨ 신규 추가 및 고도화 (Enhancements & New Features)

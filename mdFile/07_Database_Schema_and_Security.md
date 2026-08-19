@@ -36,9 +36,37 @@
 
 ---
 
+## 🏛️ Supabase `trust_signal_audits` 테이블 스키마 (GEO Trust 원천 데이터)
+
+홈페이지의 기술적 GEO 가독성, 크롤러 접근성, 스키마, 신뢰 콘텐츠 자산(원문 스니펫 및 링크 포함)을 정밀 저장하는 테이블입니다:
+
+| 컬럼명 | 데이터 타입 | 설명 |
+|---|---|---|
+| `id` | bigint (PK) | 고유 감사 레코드 ID |
+| `run_id` | bigint (FK) | 진단 회차 ID (`runs.id`) |
+| `hospital_code` | text (FK) | 대상 병원 코드 |
+| `target_url` | text | 진단 대상 홈페이지 URL |
+| `total_score` | integer | 종합 점수 (0~100점) |
+| `grade` | text | 등급 (`우수`, `보통`, `취약`) |
+| `geo_rate` | double precision | GEO 달성 비율 (0.00 ~ 1.00) |
+| `crawler_score` | integer | A. AI 크롤러 점수 (25점 만점) |
+| `schema_score` | integer | B. 구조화 데이터 점수 (30점 만점) |
+| `content_score` | integer | C. 신뢰 콘텐츠 자산 점수 (25점 만점) |
+| `technical_score`| integer | D. 기술적 가독성 점수 (20점 만점) |
+| `crawler_details`| jsonb | 6대 AI 크롤러별 허용/차단 상태 및 규칙 |
+| `schema_details` | jsonb | 발견된 스키마 종류 및 원본 JSON-LD 블록 |
+| `content_details`| jsonb | 의료진/FAQ/칼럼/유튜브 **존재 여부, 텍스트 스니펫, 발견된 링크(URL)** |
+| `technical_details`| jsonb | HTTPS, 타이틀, 메타설명, 텍스트 글자수, 사이트맵 |
+| `full_report_json`| jsonb | 진단 리포트 전체 원본 백업 |
+| `created_at` | timestamp | 감사 생성 일시 |
+
+---
+
 ## 🔒 보안 및 시크릿 관리 (Security & Secret Protection)
 
-1. **GitHub Secret Scanning 준수**:
+1. **API Key 보안:**
    - 소스 코드 내 하드코딩된 API Key 문자열(`sk-proj-...`, `pplx-...` 등)을 완전히 제거하고, 환경 변수(`import.meta.env`) 및 Supabase `system_config` 테이블을 통해서만 안전하게 공급합니다.
-2. **관리자 인증 (`AuthContext`)**:
-   - SHA-256 해시 검증 및 세션 관리를 통해 인가된 사용자만 진단 파라미터 및 시스템 설정을 제어할 수 있습니다.
+   - Vite Reverse Proxy(`vite.config.ts`)를 경유하여 브라우저에서 API를 직접 호출하더라도 CORS 차단 및 Key 노출 문제를 최소화합니다.
+
+2. **Row Level Security (RLS) 정책:**
+   - 모든 테이블(`hospitals`, `hospital_config_versions`, `runs`, `answers`, `trust_signal_audits`, `verification_items`, `system_config`)에 RLS를 적용하여 인가되지 않은 외부 변조를 방지합니다.

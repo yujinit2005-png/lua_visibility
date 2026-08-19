@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS public.hospital_config_versions (
     region_terms text,
     competitors text,
     queries text,
+    naver_queries text,
     is_active boolean DEFAULT true,
     memo text,
     created_at timestamp with time zone DEFAULT now(),
@@ -166,13 +167,14 @@ ALTER TABLE public.web_verification_answers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.verification_items ENABLE ROW LEVEL SECURITY;
 
--- Note: Ensure to add appropriate Policies allowing access via anon key for web frontend
-CREATE POLICY "Allow public read access to hospitals" ON public.hospitals FOR SELECT USING (true);
-CREATE POLICY "Allow public read access to hospital_config_versions" ON public.hospital_config_versions FOR SELECT USING (true);
-CREATE POLICY "Allow public read/insert/update access to runs" ON public.runs FOR ALL USING (true);
-CREATE POLICY "Allow public read/insert/update access to answers" ON public.answers FOR ALL USING (true);
-CREATE POLICY "Allow public access to web_verifications" ON public.web_verifications FOR ALL USING (true);
-CREATE POLICY "Allow public access to web_verification_answers" ON public.web_verification_answers FOR ALL USING (true);
+CREATE POLICY "Allow full access to hospitals" ON public.hospitals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow full access to hospital_config_versions" ON public.hospital_config_versions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow full access to runs" ON public.runs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow full access to answers" ON public.answers FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow full access to web_verifications" ON public.web_verifications FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow full access to web_verification_answers" ON public.web_verification_answers FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow full access to system_config" ON public.system_config FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow full access to verification_items" ON public.verification_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 -- --------------------------------------------------------
 -- Storage RLS (Row Level Security) Policies for 'lua_visibility_file'

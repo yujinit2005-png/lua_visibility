@@ -20,21 +20,86 @@ interface HospitalConfigVersion {
   region_terms?: string;
   competitors?: string;
   queries?: string;
+  naver_queries?: string;
   is_active?: boolean;
   memo?: string;
   created_at?: string;
 }
 
+// 4단어 네이버 검색 키워드 자동 분리 헬퍼
+export const extractNaverKeywordsFromQuery = (q: string): string => {
+  if (!q) return '';
+  let text = q.trim();
+
+  // 1. 구두점 및 따옴표 제거
+  text = text.replace(/["'“”‘’`?.,!~()\[\]]/g, ' ');
+
+  // 2. 종결어 및 의문형/서술형 불용어 정규식 정리
+  text = text
+    .replace(/(어디야|어디가|어디서|어디|알려줘|알려주세요|추천해줘|추천해주세요|추천|어떻게|어떤가요|될까요|있나요|할까요|있을까요|어떨까요|무엇인가요)/g, ' ')
+    .replace(/(받을\s*수\s*있는|받으려면|받을|진료\s*잘하는|잘하는|진료하는|진료하|진료|치료하는|치료|검사하고|검사\s*가능한|검사|상담할|상담\s*가능한|상담까지|상담|수술\s*상담할|수술하는|수술|진단\s*받을\s*수\s*있는|진단)/g, ' ')
+    .replace(/(모시고|다니기|갈만한|있는|가능한|가능|알려진|유명한|좋은|괜찮은|가까운|편한|함께)/g, ' ')
+    .replace(/(우리|부모님|부모님이|아이|내가|가족|누가|누구|곳|여기|저기|이런|가장|많은|계속\s*나는|나는|질환)/g, ' ')
+    .replace(/(근처|주변|인근)/g, ' ');
+
+  // 3. 단어 단위로 쪼개기
+  const tokens = text.split(/\s+/).filter((t) => t.length > 0);
+  const resultWords: string[] = [];
+
+  // 한국어 조사 및 불필요 접미사 제거
+  const stripParticles = (word: string): string => {
+    let w = word;
+    w = w.replace(/(에서|이나|거나|하고|으로|까지|부터|에게|로써|보다)$/g, '');
+    w = w.replace(/(은|는|이|가|을|를|의|와|과|에|로)$/g, '');
+    return w.trim();
+  };
+
+  const stopWords = new Set([
+    '어디', '추천', '진료', '치료', '검사', '수술', '상담', '진단', '질환', '증상', '방법'
+  ]);
+
+  for (const token of tokens) {
+    const cleaned = stripParticles(token);
+    if (!cleaned || cleaned.length < 2) continue;
+    
+    if (stopWords.has(cleaned) && !token.includes('이비인후과') && !token.includes('한방병원') && !token.includes('정형외과') && !token.includes('내과') && !token.includes('안과') && !token.includes('치과') && !token.includes('피부과')) {
+      continue;
+    }
+
+    if (!resultWords.includes(cleaned)) {
+      resultWords.push(cleaned);
+      if (resultWords.length >= 4) break;
+    }
+  }
+
+  // 4단어 미만이고 질문 원문에 이비인후과/내과/병원 등이 있는데 아직 포함 안 된 경우 보완
+  const commonHospTypes = ['이비인후과', '정형외과', '안과', '치과', '피부과', '내과', '한의원', '한방병원', '병원', '의원'];
+  if (resultWords.length < 4) {
+    for (const ht of commonHospTypes) {
+      if (q.includes(ht) && !resultWords.some(rw => rw.includes(ht))) {
+        resultWords.push(ht);
+        if (resultWords.length >= 4) break;
+      }
+    }
+  }
+
+  return resultWords.join(' ');
+};
+
 interface HospitalManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onRefreshHospitals: () => void;
+  onRefreshHospitals?: () => void;
+  initialHospitalCode?: string;
+  initialVersion?: string;
 }
 
 export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = ({
   isOpen,
   onClose,
   onRefreshHospitals,
+  initialHospitalCode,
+  initialVersion,
 }) => {
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [selectedHospitalCode, setSelectedHospitalCode] = useState<string>('');
@@ -63,6 +128,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
     region_terms: string;
     competitors: string;
     queries: string;
+    naver_queries: string;
   }>({
     version: 'v1.0',
     memo: '',
@@ -70,17 +136,18 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
     region_terms: '',
     competitors: '',
     queries: '',
+    naver_queries: '',
   });
 
   // Tab Selection
-  const [activeTab, setActiveTab] = useState<'aliases' | 'region_terms' | 'competitors' | 'queries'>('aliases');
+  const [activeTab, setActiveTab] = useState<'aliases' | 'region_terms' | 'competitors' | 'queries' | 'naver_queries'>('aliases');
   const [_loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       fetchHospitals();
     }
-  }, [isOpen]);
+  }, [isOpen, initialHospitalCode, initialVersion]);
 
   const fetchHospitals = async () => {
     setLoading(true);
@@ -91,12 +158,15 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
         .order('hospital_code', { ascending: true });
 
       if (error) throw error;
-      setHospitals(data || []);
+      const hospList = data || [];
+      setHospitals(hospList);
       
-      if (data && data.length > 0) {
-        const firstCode = data[0].hospital_code;
-        setSelectedHospitalCode(firstCode);
-        loadHospitalDetails(firstCode, data);
+      if (hospList.length > 0) {
+        // 메인 화면에서 선택된 병원(initialHospitalCode)이 있으면 해당 병원 우선 선택
+        const matchedHosp = initialHospitalCode ? hospList.find(h => h.hospital_code === initialHospitalCode) : null;
+        const targetCode = matchedHosp ? matchedHosp.hospital_code : hospList[0].hospital_code;
+        setSelectedHospitalCode(targetCode);
+        loadHospitalDetails(targetCode, hospList, initialVersion);
       } else {
         handleNewHospital();
       }
@@ -107,7 +177,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
     }
   };
 
-  const loadHospitalDetails = async (code: string, hospList: Hospital[]) => {
+  const loadHospitalDetails = async (code: string, hospList: Hospital[], targetVersion?: string) => {
     const hosp = hospList.find((h) => h.hospital_code === code);
     if (hosp) {
       setHospitalForm({ ...hosp });
@@ -122,12 +192,15 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
         .order('id', { ascending: false });
 
       if (verErr) throw verErr;
-      setVersions(verData || []);
+      const vers = verData || [];
+      setVersions(vers);
 
-      if (verData && verData.length > 0) {
-        const firstVer = verData[0];
-        setSelectedVersionId(firstVer.id);
-        bindVersionForm(firstVer);
+      if (vers.length > 0) {
+        // 메인 화면에서 선택된 버전(targetVersion)이 있으면 해당 버전 우선 선택
+        const matchedVer = targetVersion ? vers.find(v => v.version === targetVersion) : null;
+        const targetVer = matchedVer || vers[0];
+        setSelectedVersionId(targetVer.id);
+        bindVersionForm(targetVer);
       } else {
         // Reset version form
         setVersionForm({
@@ -137,12 +210,20 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
           region_terms: '',
           competitors: '',
           queries: '',
+          naver_queries: '',
         });
         setSelectedVersionId(null);
       }
-    } catch (e: any) {
+    } catch (e) {
       console.error('Versions fetch error', e);
     }
+  };
+
+  const cleanLineText = (line: string): string => {
+    return line
+      .trim()
+      .replace(/^[“"'`]+|[“"'`,]+$/g, '')
+      .trim();
   };
 
   const parseArrayToText = (rawStr?: string): string => {
@@ -152,20 +233,28 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
         const arr = JSON.parse(trimmed);
         if (Array.isArray(arr)) {
-          return arr.join('\n');
+          return arr
+            .map((item) => cleanLineText(String(item)))
+            .filter(Boolean)
+            .join('\n');
         }
       }
     } catch (e) {
       // Fallback if not valid JSON
     }
-    return rawStr;
+    // 일반 문자열인 경우 줄단위로 쪼개어 따옴표 및 콤마 정제
+    return rawStr
+      .split('\n')
+      .map((line) => cleanLineText(line))
+      .filter(Boolean)
+      .join('\n');
   };
 
   const formatTextToArrayJson = (text: string): string => {
     if (!text) return '[]';
     const lines = text
       .split('\n')
-      .map((line) => line.trim())
+      .map((line) => cleanLineText(line))
       .filter((line) => line.length > 0);
     return JSON.stringify(lines);
   };
@@ -178,7 +267,23 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       region_terms: parseArrayToText(ver.region_terms),
       competitors: parseArrayToText(ver.competitors),
       queries: parseArrayToText(ver.queries),
+      naver_queries: parseArrayToText(ver.naver_queries),
     });
+  };
+
+  const handleAutoGenerateNaverQueries = () => {
+    if (!versionForm.queries || !versionForm.queries.trim()) {
+      alert('먼저 "분석 / 질의 문구" 탭에 질문을 입력해 주세요.');
+      return;
+    }
+    const lines = versionForm.queries.split('\n').map((l) => l.trim()).filter(Boolean);
+    const extracted = lines.map((line) => extractNaverKeywordsFromQuery(line)).filter(Boolean);
+    const generatedText = extracted.join('\n');
+    setVersionForm((prev) => ({
+      ...prev,
+      naver_queries: generatedText,
+    }));
+    setActiveTab('naver_queries');
   };
 
   const handleHospitalChange = (code: string) => {
@@ -217,6 +322,7 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       region_terms: '',
       competitors: '',
       queries: '',
+      naver_queries: '',
     });
   };
 
@@ -267,26 +373,47 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       const regionTermsJson = formatTextToArrayJson(versionForm.region_terms);
       const competitorsJson = formatTextToArrayJson(versionForm.competitors);
       const queriesJson = formatTextToArrayJson(versionForm.queries);
+      const naverQueriesJson = formatTextToArrayJson(versionForm.naver_queries);
 
       // 2. Upsert or Update selected version
       if (selectedVersionId) {
-        const { error: verErr } = await supabase
+        const updatePayload: any = {
+          version: versionForm.version,
+          memo: versionForm.memo,
+          aliases: aliasesJson,
+          region_terms: regionTermsJson,
+          competitors: competitorsJson,
+          queries: queriesJson,
+          naver_queries: naverQueriesJson,
+          updated_at: new Date().toISOString(),
+        };
+
+        let { error: verErr } = await supabase
           .from('hospital_config_versions')
-          .update({
-            version: versionForm.version,
-            memo: versionForm.memo,
-            aliases: aliasesJson,
-            region_terms: regionTermsJson,
-            competitors: competitorsJson,
-            queries: queriesJson,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updatePayload)
           .eq('id', selectedVersionId);
+
+        // 컬럼이 아직 DB에 생성되지 않은 경우 안내 및 fallback 시도
+        if (verErr && verErr.message?.includes('naver_queries')) {
+          const fallbackPayload = { ...updatePayload };
+          delete fallbackPayload.naver_queries;
+          const { error: fbErr } = await supabase
+            .from('hospital_config_versions')
+            .update(fallbackPayload)
+            .eq('id', selectedVersionId);
+
+          if (!fbErr) {
+            alert('⚠️ DB에 naver_queries 컬럼이 없어 기존 항목들만 우선 저장되었습니다.\n\n네이버 질문셋도 함께 저장하려면 Supabase SQL Editor에서 아래 쿼리를 실행해 주세요:\n\nALTER TABLE public.hospital_config_versions ADD COLUMN IF NOT EXISTS naver_queries text;');
+            onRefreshHospitals();
+            fetchHospitals();
+            return;
+          }
+        }
 
         if (verErr) throw verErr;
       } else {
         // Insert new version row
-        const { error: verErr } = await supabase.from('hospital_config_versions').insert({
+        const insertPayload: any = {
           hospital_code: hospitalForm.hospital_code,
           version: versionForm.version,
           memo: versionForm.memo,
@@ -294,8 +421,23 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
           region_terms: regionTermsJson,
           competitors: competitorsJson,
           queries: queriesJson,
+          naver_queries: naverQueriesJson,
           is_active: true,
-        });
+        };
+
+        let { error: verErr } = await supabase.from('hospital_config_versions').insert(insertPayload);
+
+        if (verErr && verErr.message?.includes('naver_queries')) {
+          const fallbackPayload = { ...insertPayload };
+          delete fallbackPayload.naver_queries;
+          const { error: fbErr } = await supabase.from('hospital_config_versions').insert(fallbackPayload);
+          if (!fbErr) {
+            alert('⚠️ DB에 naver_queries 컬럼이 없어 기존 항목들만 우선 저장되었습니다.\n\n네이버 질문셋도 함께 저장하려면 Supabase SQL Editor에서 아래 쿼리를 실행해 주세요:\n\nALTER TABLE public.hospital_config_versions ADD COLUMN IF NOT EXISTS naver_queries text;');
+            onRefreshHospitals();
+            fetchHospitals();
+            return;
+          }
+        }
 
         if (verErr) throw verErr;
       }
@@ -304,7 +446,11 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       onRefreshHospitals();
       fetchHospitals();
     } catch (e: any) {
-      alert(`저장 실패: ${e.message}`);
+      if (e.message?.includes('naver_queries')) {
+        alert(`저장 실패: DB 테이블에 'naver_queries' 컬럼이 아직 없습니다.\n\nSupabase 대시보드 SQL Editor에서 다음 명령을 실행해 주세요:\n\nALTER TABLE public.hospital_config_versions ADD COLUMN IF NOT EXISTS naver_queries text;`);
+      } else {
+        alert(`저장 실패: ${e.message}`);
+      }
     }
   };
 
@@ -336,9 +482,10 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       const regionTermsJson = formatTextToArrayJson(versionForm.region_terms);
       const competitorsJson = formatTextToArrayJson(versionForm.competitors);
       const queriesJson = formatTextToArrayJson(versionForm.queries);
+      const naverQueriesJson = formatTextToArrayJson(versionForm.naver_queries);
 
       // 2. Insert new version
-      const { error: verErr } = await supabase.from('hospital_config_versions').insert({
+      const insertPayload: any = {
         hospital_code: hospitalForm.hospital_code,
         version: newVer,
         memo: versionForm.memo || '새 버전 생성',
@@ -346,8 +493,23 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
         region_terms: regionTermsJson,
         competitors: competitorsJson,
         queries: queriesJson,
+        naver_queries: naverQueriesJson,
         is_active: true,
-      });
+      };
+
+      let { error: verErr } = await supabase.from('hospital_config_versions').insert(insertPayload);
+
+      if (verErr && verErr.message?.includes('naver_queries')) {
+        const fallbackPayload = { ...insertPayload };
+        delete fallbackPayload.naver_queries;
+        const { error: fbErr } = await supabase.from('hospital_config_versions').insert(fallbackPayload);
+        if (!fbErr) {
+          alert(`⚠️ DB에 naver_queries 컬럼이 없어 기존 항목들만 새 버전 [${newVer}]으로 저장되었습니다.\n\n네이버 질문셋도 함께 저장하려면 Supabase SQL Editor에서 아래 쿼리를 실행해 주세요:\n\nALTER TABLE public.hospital_config_versions ADD COLUMN IF NOT EXISTS naver_queries text;`);
+          onRefreshHospitals();
+          fetchHospitals();
+          return;
+        }
+      }
 
       if (verErr) throw verErr;
 
@@ -355,7 +517,11 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
       onRefreshHospitals();
       fetchHospitals();
     } catch (e: any) {
-      alert(`새 버전 저장 실패: ${e.message}`);
+      if (e.message?.includes('naver_queries')) {
+        alert(`새 버전 저장 실패: DB 테이블에 'naver_queries' 컬럼이 아직 없습니다.\n\nSupabase 대시보드 SQL Editor에서 다음 명령을 실행해 주세요:\n\nALTER TABLE public.hospital_config_versions ADD COLUMN IF NOT EXISTS naver_queries text;`);
+      } else {
+        alert(`새 버전 저장 실패: ${e.message}`);
+      }
     }
   };
 
@@ -368,10 +534,13 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
         <div className="bg-[#0E2A47] text-white px-6 py-3 flex justify-between items-center shadow-sm">
           <div className="flex items-center gap-2">
             <span className="text-xl">📄</span>
-            <h2 className="text-base font-bold">병원 마스타 & 질문 세트 버전 관리</h2>
+            <h3 className="font-bold text-sm">병원 마스타 & 질문 세트 버전 관리</h3>
           </div>
-          <button onClick={onClose} className="text-white hover:text-gray-300 text-2xl font-bold">
-            &times;
+          <button
+            onClick={onClose}
+            className="text-gray-300 hover:text-white font-bold text-lg leading-none"
+          >
+            ✕
           </button>
         </div>
 
@@ -536,56 +705,100 @@ export const HospitalManagementModal: React.FC<HospitalManagementModalProps> = (
 
           {/* Section 3: Tabs & Textarea */}
           <div className="border border-gray-300 rounded overflow-hidden bg-white">
-            <div className="flex bg-gray-100 border-b border-gray-300">
+            <div className="flex bg-gray-100 border-b border-gray-300 overflow-x-auto">
               <button
                 onClick={() => setActiveTab('aliases')}
-                className={`px-4 py-2 font-bold text-xs border-r border-gray-300 ${
+                className={`px-3 py-2 font-bold text-xs border-r border-gray-300 whitespace-nowrap ${
                   activeTab === 'aliases'
                     ? 'bg-white text-orange-600 border-b-2 border-b-orange-500'
                     : 'text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                대표 / 별칭 명칭 (줄바꿈 구분)
+                대표 / 별칭 명칭
               </button>
               <button
                 onClick={() => setActiveTab('region_terms')}
-                className={`px-4 py-2 font-bold text-xs border-r border-gray-300 ${
+                className={`px-3 py-2 font-bold text-xs border-r border-gray-300 whitespace-nowrap ${
                   activeTab === 'region_terms'
                     ? 'bg-white text-orange-600 border-b-2 border-b-orange-500'
                     : 'text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                지역 키워드 (줄바꿈 구분)
+                지역 키워드
               </button>
               <button
                 onClick={() => setActiveTab('competitors')}
-                className={`px-4 py-2 font-bold text-xs border-r border-gray-300 ${
+                className={`px-3 py-2 font-bold text-xs border-r border-gray-300 whitespace-nowrap ${
                   activeTab === 'competitors'
                     ? 'bg-white text-orange-600 border-b-2 border-b-orange-500'
                     : 'text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                경쟁 병원 (줄바꿈 구분)
+                경쟁 병원
               </button>
               <button
                 onClick={() => setActiveTab('queries')}
-                className={`px-4 py-2 font-bold text-xs ${
+                className={`px-3 py-2 font-bold text-xs border-r border-gray-300 whitespace-nowrap ${
                   activeTab === 'queries'
                     ? 'bg-white text-orange-600 border-b-2 border-b-orange-500'
                     : 'text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                분석 / 질의 문구 (줄바꿈 구분)
+                분석 / 질의 문구 (AI 공통)
+              </button>
+              <button
+                onClick={() => setActiveTab('naver_queries')}
+                className={`px-3 py-2 font-bold text-xs whitespace-nowrap flex items-center gap-1 ${
+                  activeTab === 'naver_queries'
+                    ? 'bg-white text-emerald-700 border-b-2 border-b-emerald-600 font-extrabold'
+                    : 'text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100'
+                }`}
+              >
+                <span>🟢</span> 네이버 API 질의어 (전용 질문셋)
               </button>
             </div>
 
-            <div className="p-2 bg-white">
+            <div className="p-3 bg-white space-y-2">
+              {/* Naver Queries Toolbar & Auto Extraction Banner */}
+              {activeTab === 'naver_queries' && (
+                <div className="flex flex-wrap items-center justify-between bg-emerald-50 border border-emerald-200 rounded p-2.5 gap-2">
+                  <div className="text-emerald-900 text-xs leading-relaxed">
+                    <span className="font-bold">💡 네이버 지역검색 API 전용 질문셋:</span> 질문별 최대 4단어의 핵심 검색어를 줄바꿈으로 관리합니다.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAutoGenerateNaverQueries}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-1.5 rounded shadow-sm flex items-center gap-1.5 transition-colors"
+                  >
+                    <span>⚡</span> 질문에서 4단어 자동 분리 및 불러오기
+                  </button>
+                </div>
+              )}
+
+              {/* Queries Tab Hint for Naver queries generation */}
+              {activeTab === 'queries' && (
+                <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded p-2 text-xs">
+                  <span className="text-blue-900 font-medium">💡 생성형 AI (ChatGPT, Gemini, Perplexity 등) 공통 진단 질문 문구입니다.</span>
+                  <button
+                    type="button"
+                    onClick={handleAutoGenerateNaverQueries}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-2.5 py-1 rounded flex items-center gap-1 shadow-sm transition-colors"
+                  >
+                    <span>⚡</span> 네이버 API 질문셋 자동 생성 ➔
+                  </button>
+                </div>
+              )}
+
               <textarea
                 rows={10}
                 value={versionForm[activeTab]}
                 onChange={(e) => setVersionForm({ ...versionForm, [activeTab]: e.target.value })}
                 className="w-full p-3 border border-gray-200 bg-white text-black font-semibold rounded outline-none focus:border-orange-500 font-mono text-xs leading-relaxed"
-                placeholder="항목을 줄바꿈(Enter)으로 구분하여 입력하세요."
+                placeholder={
+                  activeTab === 'naver_queries'
+                    ? "네이버 지역검색 API에 전송할 핵심 키워드를 줄바꿈(Enter)으로 입력하세요.\n예:\n청주 비염 이비인후과\n청주 만성비염 코막힘 이비인후과\n청주 흥덕구 알레르기비염 이비인후과\n(상단의 '질문에서 4단어 자동 분리 및 불러오기' 버튼을 누르면 자동 추출됩니다.)"
+                    : "항목을 줄바꿈(Enter)으로 구분하여 입력하세요."
+                }
               />
             </div>
           </div>

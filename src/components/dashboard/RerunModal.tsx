@@ -5,6 +5,7 @@ import type { ProviderResult } from '../../lib/providers';
 import { generateAndUploadReport } from '../../lib/reportGenerator';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { analyzeAnswer } from '../../lib/analyzer';
+import { analyzeTrustSignals } from '../../lib/trustSignal';
 
 interface AnswerItem {
   id: number;
@@ -347,31 +348,86 @@ export const RerunModal: React.FC<RerunModalProps> = ({
     });
   };
 
+  const parseList = (val: any): string[] => {
+    if (!val) return [];
+    if (Array.isArray(val)) {
+      return val.map((s) => String(s).replace(/^["']+|["']+$/g, '').trim()).filter(Boolean);
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return parsed.map((s) => String(s).replace(/^["']+|["']+$/g, '').trim()).filter(Boolean);
+          }
+        } catch (e) {}
+      }
+      return trimmed
+        .split(/[\n,]+/)
+        .map((s) => s.replace(/^["']+|["']+$/g, '').trim())
+        .filter(Boolean);
+    }
+    return [];
+  };
+
   const getHospitalConfig = async () => {
-    let aliases: string[] = [hospitalName, hospitalCode];
+    const activeRun = runs.find((r) => r.id === currentRunId);
+    const targetHospCode = (activeRun as any)?.hospital_code || hospitalCode;
+    let aliases: string[] = [hospitalName, targetHospCode];
     let competitors: string[] = [];
+    let queries: string[] = [];
+    let naverQueries: string[] = [];
 
     try {
-      const { data: hospVers } = await supabase
-        .from('hospital_config_versions')
-        .select('aliases, competitors')
-        .eq('hospital_code', hospitalCode)
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      let hospVers: any = null;
+      if ((activeRun as any)?.config_version_id) {
+        const { data } = await supabase
+          .from('hospital_config_versions')
+          .select('aliases, competitors, queries, naver_queries')
+          .eq('id', (activeRun as any).config_version_id)
+          .maybeSingle();
+        hospVers = data;
+      }
+
+      if (!hospVers && (activeRun as any)?.config_version && targetHospCode) {
+        const { data } = await supabase
+          .from('hospital_config_versions')
+          .select('aliases, competitors, queries, naver_queries')
+          .eq('hospital_code', targetHospCode)
+          .eq('version', (activeRun as any).config_version)
+          .maybeSingle();
+        hospVers = data;
+      }
+
+      if (!hospVers && targetHospCode) {
+        const { data } = await supabase
+          .from('hospital_config_versions')
+          .select('aliases, competitors, queries, naver_queries')
+          .eq('hospital_code', targetHospCode)
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        hospVers = data;
+      }
 
       if (hospVers) {
-        const parsedAliases = typeof hospVers.aliases === 'string' ? JSON.parse(hospVers.aliases) : (hospVers.aliases || []);
-        const parsedCompetitors = typeof hospVers.competitors === 'string' ? JSON.parse(hospVers.competitors) : (hospVers.competitors || []);
-        if (Array.isArray(parsedAliases)) aliases = [...aliases, ...parsedAliases];
-        if (Array.isArray(parsedCompetitors)) competitors = parsedCompetitors;
+        const parsedAliases = parseList(hospVers.aliases);
+        const parsedCompetitors = parseList(hospVers.competitors);
+        const parsedQueries = parseList(hospVers.queries);
+        const parsedNaverQueries = parseList(hospVers.naver_queries);
+        if (parsedAliases.length > 0) aliases = [...aliases, ...parsedAliases];
+        if (parsedCompetitors.length > 0) competitors = parsedCompetitors;
+        if (parsedQueries.length > 0) queries = parsedQueries;
+        if (parsedNaverQueries.length > 0) naverQueries = parsedNaverQueries;
       }
     } catch (e) {
-      // fallback
+      console.error('getHospitalConfig error:', e);
     }
 
     aliases = Array.from(new Set(aliases.filter(Boolean)));
-    return { aliases, competitors };
+    competitors = Array.from(new Set(competitors.filter(Boolean)));
+    return { aliases, competitors, queries, naverQueries };
   };
 
   const getEffectiveKey = (provider: string): string => {
@@ -406,9 +462,22 @@ export const RerunModal: React.FC<RerunModalProps> = ({
     const taskStartTime = Date.now();
 
     try {
-      const { aliases, competitors } = await getHospitalConfig();
+      const { aliases, competitors, queries, naverQueries } = await getHospitalConfig();
       const prov = (ans.provider || '').toLowerCase();
       let pRes: ProviderResult;
+
+      // 질문 순서 매칭 (질문 순서는 AI 공통 질문 순서와 1:1 동일)
+      let qIdx = -1;
+      if (ans.question_id) {
+        const match = ans.question_id.match(/\d+/);
+        if (match) {
+          qIdx = parseInt(match[0], 10) - 1;
+        }
+      }
+      if (qIdx < 0 || qIdx >= naverQueries.length) {
+        qIdx = queries.findIndex((item) => item.trim() === q.trim());
+      }
+      const customNaverQ = (qIdx >= 0 && qIdx < naverQueries.length && naverQueries[qIdx]) ? naverQueries[qIdx].trim() : '';
 
       if (prov.includes('openai')) {
         const key = getEffectiveKey('openai');
@@ -422,7 +491,12 @@ export const RerunModal: React.FC<RerunModalProps> = ({
       } else if (prov.includes('naver')) {
         const nId = apiKeys.naverId || import.meta.env.NCP_APIGW_API_KEY_ID || 'i8ciwrvzln';
         const nSecret = apiKeys.naverSecret || import.meta.env.NCP_APIGW_API_KEY || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x';
-        pRes = await callNaverLocal(q, { clientId: nId, clientSecret: nSecret }, aliases);
+        if (customNaverQ) {
+          appendLog(`  📌 [네이버 API 질의어 적용 (${qIdx + 1}번)]: "${customNaverQ}"`);
+        } else {
+          appendLog(`  ℹ️ [네이버 기본 질의어 자동생성 적용]`);
+        }
+        pRes = await callNaverLocal(q, { clientId: nId, clientSecret: nSecret }, aliases, customNaverQ);
       } else if (prov.includes('anthropic') || prov.includes('claude')) {
         const key = getEffectiveKey('anthropic');
         if (!key) throw new Error('Claude API 키가 설정되지 않았습니다.');
@@ -599,36 +673,86 @@ export const RerunModal: React.FC<RerunModalProps> = ({
       await new Promise((r) => setTimeout(r, 600));
       setStepStatuses((prev) => ({ ...prev, analysis: 'done', trust: 'running' }));
 
-      appendLog(`[스텝 3,4 재실행] Trust Signal 기술 점검 (GEO 준비도) 진행 중...`);
+      appendLog(`[스텝 3,4 재실행] Trust Signal 기술 점검 (GEO 준비도) 실측 진행 중...`);
 
-      const trustReport = {
-        hospitalName,
-        geoPreparedness: '85%',
-        checkedAt: new Date().toISOString(),
-        signals: [
-          { name: 'Schema Markup', status: 'PASS' },
-          { name: 'NAP Consistency', status: 'PASS' },
-          { name: 'Domain Authority', status: 'PASS' },
-        ],
-      };
+      // 1. 대상 병원 및 홈페이지 URL 조회
+      const activeRun = runs.find(r => r.id === currentRunId);
+      const effHospCode = activeRun?.hospital_code || hospitalCode;
+      let targetUrl = '';
 
-      // Save Step 4 result to DB
+      try {
+        if (effHospCode) {
+          const { data: hospData } = await supabase
+            .from('hospitals')
+            .select('homepage, hospital_code')
+            .eq('hospital_code', effHospCode)
+            .maybeSingle();
+          if (hospData?.homepage) targetUrl = hospData.homepage;
+        }
+        if (!targetUrl && hospitalName) {
+          const { data: hospByName } = await supabase
+            .from('hospitals')
+            .select('homepage, hospital_code')
+            .ilike('name', `%${hospitalName}%`)
+            .maybeSingle();
+          if (hospByName?.homepage) targetUrl = hospByName.homepage;
+        }
+      } catch (e) {}
+
+      appendLog(`  🌐 점검 대상 홈페이지: ${targetUrl || '(URL 미등록, 기본 점검 진행)'}`);
+
+      // 2. 실제 GEO Trust 4대 영역 실측 수행 (텍스트 스니펫, 링크, 세부 점수 추출)
+      const trustReport = await analyzeTrustSignals(targetUrl || 'http://localhost');
+
+      // 3. runs 테이블 업데이트
       const { error: step4Err } = await supabase
         .from('runs')
         .update({
-          trust_report_json: trustReport,
+          trust_report_json: JSON.stringify(trustReport),
         })
         .eq('id', currentRunId);
 
       if (step4Err) {
-        appendLog(`❌ DB 저장 실패 (스텝 4): ${step4Err.message}`);
-      } else {
-        appendLog(`  ✔ 스텝 4 Trust Signal 검검 결과 DB 저장 완료 (GEO 준비도: 85%)`);
+        appendLog(`❌ runs 테이블 저장 실패 (스텝 4): ${step4Err.message}`);
       }
+
+      // 4. [핵심] trust_signal_audits 테이블에 4대 영역 원천 세부 데이터 적재
+      const auditPayload = {
+        run_id: Number(currentRunId),
+        hospital_code: effHospCode || null,
+        target_url: targetUrl || trustReport.url || 'http://localhost',
+        total_score: Number(trustReport.totalScore) || 0,
+        grade: trustReport.grade || '보통',
+        geo_rate: Number(trustReport.geoRate) || 0,
+        crawler_score: Number(trustReport.crawlerScore ?? trustReport.items?.[0]?.earned) || 0,
+        schema_score: Number(trustReport.schemaScore ?? trustReport.items?.[1]?.earned) || 0,
+        content_score: Number(trustReport.contentScore ?? trustReport.items?.[2]?.earned) || 0,
+        technical_score: Number(trustReport.technicalScore ?? trustReport.items?.[3]?.earned) || 0,
+        crawler_details: trustReport.crawlerDetails || [],
+        schema_details: trustReport.schemaDetails || {},
+        content_details: trustReport.contentDetails || {},
+        technical_details: trustReport.technicalDetails || {},
+        full_report_json: trustReport
+      };
+
+      const { error: auditErr } = await supabase
+        .from('trust_signal_audits')
+        .insert(auditPayload);
+
+      if (auditErr) {
+        appendLog(`❌ trust_signal_audits 저장 실패: ${auditErr.message} (코드: ${auditErr.code || ''})`);
+        console.error('trust_signal_audits insert error:', auditErr);
+      } else {
+        appendLog(`  ✔ trust_signal_audits 원천 데이터 DB 저장 성공 (Run #${currentRunId})`);
+      }
+
+      appendLog(`  ✔ 스텝 4 Trust Signal 실측 완료 (점수: ${trustReport.totalScore}점 ${trustReport.grade}, GEO 준비도 ${Math.round(trustReport.geoRate * 100)}%)`);
 
       await new Promise((r) => setTimeout(r, 600));
       setStepStatuses((prev) => ({ ...prev, trust: 'done' }));
-      appendLog(`🎉 스텝 3,4 재실행 및 DB 업데이트가 완료되었습니다.`);
+      appendLog(`🎉 스텝 3,4 재실행 및 trust_signal_audits 원천 데이터 저장이 완료되었습니다.`);
+    } catch (err: any) {
+      appendLog(`❌ 스텝 3,4 재실행 중 오류: ${err.message}`);
     } finally {
       setIsRerunning(false);
     }
@@ -799,12 +923,12 @@ export const RerunModal: React.FC<RerunModalProps> = ({
               <span>Perplexity</span>
             </label>
             <label className="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" checked={aiTools.anthropic} onChange={(e) => setAiTools({ ...aiTools, anthropic: e.target.checked })} className="w-3.5 h-3.5 text-purple-600 rounded accent-purple-600" />
+              <span>Claude</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer">
               <input type="checkbox" checked={aiTools.naver} onChange={(e) => setAiTools({ ...aiTools, naver: e.target.checked })} className="w-3.5 h-3.5 text-purple-600 rounded accent-purple-600" />
               <span>Naver</span>
-            </label>
-            <label className="flex items-center gap-1 cursor-not-allowed opacity-50">
-              <input type="checkbox" checked={false} disabled className="w-3.5 h-3.5 text-gray-400 rounded accent-gray-400 cursor-not-allowed" />
-              <span className="line-through text-gray-400">Claude</span>
             </label>
           </div>
 

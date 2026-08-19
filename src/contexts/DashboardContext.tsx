@@ -56,7 +56,6 @@ const DashboardContext = createContext<DashboardState | undefined>(undefined);
 
 export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   const [diagnosticType, setDiagnosticType] = useState('free');
-  const [aiTools, setAiTools] = useState({ openai: true, gemini: true, perplexity: true, naver: true, anthropic: false });
   const [options, setOptions] = useState({ aeo: true,    geo: true,
     competitor: true,
     trust: true,
@@ -77,36 +76,76 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
     anthropic: import.meta.env.ANTHROPIC_API_KEY || import.meta.env.VITE_ANTHROPIC_API_KEY || '' 
   };
 
+  const safeStr = (v: any): string => (typeof v === 'string' ? v : '');
+  const hasValidKey = (v: any, minLen = 5): boolean => safeStr(v).trim().length >= minLen;
+
+  const getToolsWithKeys = (keys: any) => ({
+    openai: hasValidKey(keys?.openai, 10),
+    gemini: hasValidKey(keys?.gemini, 5),
+    perplexity: hasValidKey(keys?.perplexity, 5),
+    anthropic: hasValidKey(keys?.anthropic, 10),
+    naver: Boolean(safeStr(keys?.naverId).trim() && safeStr(keys?.naverSecret).trim())
+  });
+
   const getInitialKeys = () => {
     try {
       const localSaved = localStorage.getItem('luvis_api_keys');
       if (localSaved) {
         const parsed = JSON.parse(localSaved);
         return {
-          openai: parsed.openai || ENV_DEFAULT_KEYS.openai,
-          gemini: parsed.gemini || ENV_DEFAULT_KEYS.gemini,
-          perplexity: parsed.perplexity || ENV_DEFAULT_KEYS.perplexity,
-          naverId: parsed.naverId || ENV_DEFAULT_KEYS.naverId,
-          naverSecret: parsed.naverSecret || ENV_DEFAULT_KEYS.naverSecret,
-          anthropic: parsed.anthropic || ENV_DEFAULT_KEYS.anthropic,
+          openai: safeStr(parsed.openai) || ENV_DEFAULT_KEYS.openai,
+          gemini: safeStr(parsed.gemini) || ENV_DEFAULT_KEYS.gemini,
+          perplexity: safeStr(parsed.perplexity) || ENV_DEFAULT_KEYS.perplexity,
+          naverId: safeStr(parsed.naverId) || ENV_DEFAULT_KEYS.naverId,
+          naverSecret: safeStr(parsed.naverSecret) || ENV_DEFAULT_KEYS.naverSecret,
+          anthropic: safeStr(parsed.anthropic) || ENV_DEFAULT_KEYS.anthropic,
         };
       }
     } catch(e) {}
     return ENV_DEFAULT_KEYS;
   };
 
-  const [apiKeys, setApiKeysState] = useState(getInitialKeys());
+  const initialKeys = getInitialKeys();
+  const [apiKeys, setApiKeysState] = useState(initialKeys);
+  const [aiTools, setAiTools] = useState(getToolsWithKeys(initialKeys));
 
   const setApiKeys = (updater: any) => {
     setApiKeysState((prev: any) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
+      const safeNext = {
+        openai: safeStr(next?.openai),
+        gemini: safeStr(next?.gemini),
+        perplexity: safeStr(next?.perplexity),
+        naverId: safeStr(next?.naverId),
+        naverSecret: safeStr(next?.naverSecret),
+        anthropic: safeStr(next?.anthropic)
+      };
+
       try {
-        localStorage.setItem('luvis_api_keys', JSON.stringify(next));
+        localStorage.setItem('luvis_api_keys', JSON.stringify(safeNext));
       } catch(e) {}
-      return next;
+      
+      // Supabase system_config 에 즉시 동기화 저장
+      supabase
+        .from('system_config')
+        .upsert({
+          key: 'api_keys',
+          value: safeNext
+        }, { onConflict: 'key' })
+        .then(({ error }) => {
+          if (error) console.warn('Supabase api_keys sync warning:', error);
+        });
+
+      return safeNext;
     });
   };
 
+  // API 키 변경 시 Supabase 키 존재 여부에 따라 AI 도구 체크 상태 엄격 동기화
+  useEffect(() => {
+    setAiTools(getToolsWithKeys(apiKeys));
+  }, [apiKeys.openai, apiKeys.gemini, apiKeys.perplexity, apiKeys.anthropic, apiKeys.naverId, apiKeys.naverSecret]);
+
+  // Supabase system_config 를 최우선 기준으로 API 키 로드
   useEffect(() => {
     const loadApiKeysFromSupabase = async () => {
       try {
@@ -117,21 +156,27 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
           .maybeSingle();
         
         if (!error && data && data.value) {
-          const remoteKeys = data.value as typeof apiKeys;
-          setApiKeysState(prev => {
+          let remoteKeys = data.value;
+          if (typeof remoteKeys === 'string') {
+            try {
+              remoteKeys = JSON.parse(remoteKeys);
+            } catch (e) {}
+          }
+          if (remoteKeys && typeof remoteKeys === 'object') {
             const merged = {
-              openai: (remoteKeys.openai && remoteKeys.openai.length > 20) ? remoteKeys.openai : (prev.openai || ENV_DEFAULT_KEYS.openai),
-              gemini: (remoteKeys.gemini && remoteKeys.gemini.length > 10) ? remoteKeys.gemini : (prev.gemini || ENV_DEFAULT_KEYS.gemini),
-              perplexity: (remoteKeys.perplexity && remoteKeys.perplexity.length > 10) ? remoteKeys.perplexity : (prev.perplexity || ENV_DEFAULT_KEYS.perplexity),
-              naverId: remoteKeys.naverId || prev.naverId || ENV_DEFAULT_KEYS.naverId,
-              naverSecret: remoteKeys.naverSecret || prev.naverSecret || ENV_DEFAULT_KEYS.naverSecret,
-              anthropic: remoteKeys.anthropic || prev.anthropic || ENV_DEFAULT_KEYS.anthropic
+              openai: safeStr(remoteKeys.openai) || ENV_DEFAULT_KEYS.openai,
+              gemini: safeStr(remoteKeys.gemini) || ENV_DEFAULT_KEYS.gemini,
+              perplexity: safeStr(remoteKeys.perplexity) || ENV_DEFAULT_KEYS.perplexity,
+              naverId: safeStr(remoteKeys.naverId) || ENV_DEFAULT_KEYS.naverId,
+              naverSecret: safeStr(remoteKeys.naverSecret) || ENV_DEFAULT_KEYS.naverSecret,
+              anthropic: safeStr(remoteKeys.anthropic) || ENV_DEFAULT_KEYS.anthropic
             };
+            setApiKeysState(merged);
+            setAiTools(getToolsWithKeys(merged));
             try {
               localStorage.setItem('luvis_api_keys', JSON.stringify(merged));
             } catch(e) {}
-            return merged;
-          });
+          }
         }
       } catch (err) {
         console.error('Failed to load API keys from Supabase:', err);

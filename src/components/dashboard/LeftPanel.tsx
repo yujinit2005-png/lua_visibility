@@ -257,6 +257,8 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
       <HospitalManagementModal
         isOpen={isHospMgmtOpen}
         onClose={() => setIsHospMgmtOpen(false)}
+        initialHospitalCode={hospitalCode}
+        initialVersion={version}
         onRefreshHospitals={() => {
           window.location.reload();
         }}
@@ -375,29 +377,87 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
 
           {/* AI 진단 도구 선택 (3개씩 배열) */}
           <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-200/80">
-            <h3 className="font-bold text-slate-800 text-xs mb-2 flex items-center gap-1.5">
-              <span>🤖</span> AI 진단 도구 선택
+            <h3 className="font-bold text-slate-800 text-xs mb-2 flex items-center gap-1.5 justify-between">
+              <span className="flex items-center gap-1.5">
+                <span>🤖</span> AI 진단 도구 선택
+              </span>
+              <span className="text-[10px] text-slate-400 font-normal">API 키 보유 항목만 활성화</span>
             </h3>
             <div className="grid grid-cols-3 gap-2 text-xs font-semibold">
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" checked={aiTools.openai} onChange={e => setAiTools({...aiTools, openai: e.target.checked})} className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" />
+              <label className={`flex items-center gap-1.5 cursor-pointer ${(typeof apiKeys?.openai !== 'string' || apiKeys.openai.trim().length < 5) ? 'opacity-40' : ''}`} title={(typeof apiKeys?.openai !== 'string' || apiKeys.openai.trim().length < 5) ? 'OpenAI API 키가 없습니다' : ''}>
+                <input 
+                  type="checkbox" 
+                  checked={aiTools.openai} 
+                  onChange={e => {
+                    if (e.target.checked && (typeof apiKeys?.openai !== 'string' || apiKeys.openai.trim().length < 5)) {
+                      alert("OpenAI API 키가 설정되지 않았습니다. 하단 [API 키 설정]에 입력해 주세요.");
+                      return;
+                    }
+                    setAiTools({...aiTools, openai: e.target.checked});
+                  }} 
+                  className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" 
+                />
                 <span className="truncate">OpenAI</span>
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" checked={aiTools.gemini} onChange={e => setAiTools({...aiTools, gemini: e.target.checked})} className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" />
+              <label className={`flex items-center gap-1.5 cursor-pointer ${(typeof apiKeys?.gemini !== 'string' || apiKeys.gemini.trim().length < 5) ? 'opacity-40' : ''}`} title={(typeof apiKeys?.gemini !== 'string' || apiKeys.gemini.trim().length < 5) ? 'Gemini API 키가 없습니다' : ''}>
+                <input 
+                  type="checkbox" 
+                  checked={aiTools.gemini} 
+                  onChange={e => {
+                    if (e.target.checked && (typeof apiKeys?.gemini !== 'string' || apiKeys.gemini.trim().length < 5)) {
+                      alert("Gemini API 키가 설정되지 않았습니다. 하단 [API 키 설정]에 입력해 주세요.");
+                      return;
+                    }
+                    setAiTools({...aiTools, gemini: e.target.checked});
+                  }} 
+                  className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" 
+                />
                 <span className="truncate">Gemini</span>
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" checked={aiTools.perplexity} onChange={e => setAiTools({...aiTools, perplexity: e.target.checked})} className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" />
+              <label className={`flex items-center gap-1.5 cursor-pointer ${(typeof apiKeys?.perplexity !== 'string' || apiKeys.perplexity.trim().length < 5) ? 'opacity-40' : ''}`} title={(typeof apiKeys?.perplexity !== 'string' || apiKeys.perplexity.trim().length < 5) ? 'Perplexity API 키가 없습니다' : ''}>
+                <input 
+                  type="checkbox" 
+                  checked={aiTools.perplexity} 
+                  onChange={e => {
+                    if (e.target.checked && (typeof apiKeys?.perplexity !== 'string' || apiKeys.perplexity.trim().length < 5)) {
+                      alert("Perplexity API 키가 설정되지 않았습니다. 하단 [API 키 설정]에 입력해 주세요.");
+                      return;
+                    }
+                    setAiTools({...aiTools, perplexity: e.target.checked});
+                  }} 
+                  className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" 
+                />
                 <span className="truncate">Perplexity</span>
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" checked={aiTools.naver} onChange={e => setAiTools({...aiTools, naver: e.target.checked})} className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" />
-                <span className="truncate">Naver API</span>
+              <label className={`flex items-center gap-1.5 cursor-pointer ${(typeof apiKeys?.anthropic !== 'string' || apiKeys.anthropic.trim().length < 5) ? 'opacity-40' : ''}`} title={(typeof apiKeys?.anthropic !== 'string' || apiKeys.anthropic.trim().length < 5) ? 'Anthropic API 키가 없습니다' : ''}>
+                <input 
+                  type="checkbox" 
+                  checked={aiTools.anthropic} 
+                  onChange={e => {
+                    if (e.target.checked && (typeof apiKeys?.anthropic !== 'string' || apiKeys.anthropic.trim().length < 5)) {
+                      alert("Anthropic (Claude) API 키가 설정되지 않았습니다. 하단 [API 키 설정]에 입력해 주세요.");
+                      return;
+                    }
+                    setAiTools({...aiTools, anthropic: e.target.checked});
+                  }} 
+                  className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" 
+                />
+                <span className="truncate">Anthropic (Claude)</span>
               </label>
-              <label className="flex items-center gap-1.5 cursor-not-allowed opacity-40 col-span-2" title="현재 비활성화됨">
-                <input type="checkbox" checked={false} disabled className="rounded text-gray-400 accent-gray-400 cursor-not-allowed" />
-                <span className="text-gray-400 line-through truncate">Anthropic (Claude)</span>
+              <label className={`flex items-center gap-1.5 cursor-pointer ${(typeof apiKeys?.naverId !== 'string' || !apiKeys.naverId.trim() || typeof apiKeys?.naverSecret !== 'string' || !apiKeys.naverSecret.trim()) ? 'opacity-40' : ''}`} title={(typeof apiKeys?.naverId !== 'string' || !apiKeys.naverId.trim() || typeof apiKeys?.naverSecret !== 'string' || !apiKeys.naverSecret.trim()) ? 'Naver API 키가 없습니다' : ''}>
+                <input 
+                  type="checkbox" 
+                  checked={aiTools.naver} 
+                  onChange={e => {
+                    if (e.target.checked && (typeof apiKeys?.naverId !== 'string' || !apiKeys.naverId.trim() || typeof apiKeys?.naverSecret !== 'string' || !apiKeys.naverSecret.trim())) {
+                      alert("Naver API 키(Client ID & Secret)가 설정되지 않았습니다. 하단 [API 키 설정]에 입력해 주세요.");
+                      return;
+                    }
+                    setAiTools({...aiTools, naver: e.target.checked});
+                  }} 
+                  className="rounded text-orange-500 focus:ring-orange-500 accent-orange-500" 
+                />
+                <span className="truncate">Naver API</span>
               </label>
             </div>
           </div>
@@ -514,16 +574,16 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                 <input type="password" value={apiKeys.perplexity} onChange={e => setApiKeys({...apiKeys, perplexity: e.target.value})} className="flex-1 border-b border-slate-300 px-2 py-0.5 text-xs bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
               </div>
               <div className="flex items-center">
+                <span className="w-28 text-slate-500 text-[11px] font-semibold">Anthropic (Claude)</span>
+                <input type="password" value={apiKeys.anthropic} onChange={e => setApiKeys({...apiKeys, anthropic: e.target.value})} className="flex-1 border-b border-slate-300 px-2 py-0.5 text-xs bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
+              </div>
+              <div className="flex items-center">
                 <span className="w-28 text-slate-500 text-[11px] font-semibold">Naver Client ID</span>
                 <input type="password" value={apiKeys.naverId} onChange={e => setApiKeys({...apiKeys, naverId: e.target.value})} className="flex-1 border-b border-slate-300 px-2 py-0.5 text-xs bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
               </div>
               <div className="flex items-center">
                 <span className="w-28 text-slate-500 text-[11px] font-semibold">Naver Secret</span>
                 <input type="password" value={apiKeys.naverSecret} onChange={e => setApiKeys({...apiKeys, naverSecret: e.target.value})} className="flex-1 border-b border-slate-300 px-2 py-0.5 text-xs bg-transparent outline-none border-dotted focus:border-solid focus:border-orange-500 tracking-[0.2em]" />
-              </div>
-              <div className="flex items-center opacity-40">
-                <span className="w-28 text-slate-400 text-[11px] font-semibold">Claude</span>
-                <input type="password" disabled value={apiKeys.anthropic} placeholder="(비활성화됨)" className="flex-1 border-b border-slate-300 px-2 py-0.5 text-xs bg-transparent outline-none border-dotted tracking-[0.2em] cursor-not-allowed" />
               </div>
             </div>
           </div>

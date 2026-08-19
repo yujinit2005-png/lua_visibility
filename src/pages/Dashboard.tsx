@@ -12,7 +12,7 @@ import { DashboardProvider, useDashboard } from '../contexts/DashboardContext';
 import { useHospitals } from '../hooks/useHospitals';
 
 const DashboardContent = () => {
-  const { hospitalCode } = useDashboard();
+  const { hospitalCode, version } = useDashboard();
   const { hospitals } = useHospitals();
   
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -69,6 +69,8 @@ const DashboardContent = () => {
       <HospitalManagementModal
         isOpen={isHospMgmtOpen}
         onClose={() => setIsHospMgmtOpen(false)}
+        initialHospitalCode={hospitalCode}
+        initialVersion={version}
         onRefreshHospitals={() => {
           window.location.reload();
         }}

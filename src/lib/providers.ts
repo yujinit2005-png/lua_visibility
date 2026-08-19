@@ -397,7 +397,7 @@ export interface NaverProviderConfig {
   clientSecret: string;
 }
 
-export const callNaverLocal = async (prompt: string, config: NaverProviderConfig, _aliases?: string[]): Promise<ProviderResult> => {
+export const callNaverLocal = async (prompt: string, config: NaverProviderConfig, _aliases?: string[], customNaverQuery?: string): Promise<ProviderResult> => {
   const clientId = config.clientId || import.meta.env.NCP_APIGW_API_KEY_ID || 'i8ciwrvzln';
   const clientSecret = config.clientSecret || import.meta.env.NCP_APIGW_API_KEY || '9EXRQssZga4OCcnnn1hdM3V9KlSEYzKefwJMvK2x';
 
@@ -417,12 +417,14 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
   const words = cleaned.split(' ').filter(w => w.length >= 2);
 
   const hospitalTypes = [
-    '한방병원', '한의원', '요양병원', '종합병원', '정형외과', '신장내과', 
+    '이비인후과의원', '이비인후과', '한방병원', '한의원', '요양병원', '종합병원', '정형외과', '신장내과', 
     '내과의원', '내과', '치과의원', '치과', '안과의원', '안과', '피부과의원', '피부과', '병원', '의원'
   ];
 
   // 긴 복합 키워드부터 우선 매칭 (무릎 로봇수술 -> 로봇수술 -> 인공관절 수술 -> 인공관절 -> 관절 순)
   const diseaseKeywords = [
+    '알레르기 비염', '알레르기비염', '만성 비염', '만성비염', '코막힘 수술', '코막힘수술', '비염 수술', '비염수술', '비염',
+    '수면무호흡증', '수면 무호흡증', '코골이', '이석증', '어지럼증', '난청', '이명', '청력검사', '보청기',
     '무릎 로봇수술', '무릎로봇수술', '로봇인공관절수술', '로봇 인공관절 수술', '로봇인공관절', '로봇 인공관절', '로봇수술', '로봇 수술',
     '인공관절수술', '인공관절 수술', '인공관절', '관절경수술', '관절경', '관절수술', '무릎수술', '무릎 수술', '퇴행성관절염', '관절염',
     '척추관협착증', '척추협착증', '허리디스크', '목디스크', '척추관절', '척추', '무릎', '관절', 
@@ -432,6 +434,24 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
   ].sort((a, b) => b.length - a.length);
 
   const diseaseToDeptMap: Record<string, string> = {
+    '알레르기 비염': '이비인후과',
+    '알레르기비염': '이비인후과',
+    '만성 비염': '이비인후과',
+    '만성비염': '이비인후과',
+    '코막힘 수술': '이비인후과',
+    '코막힘수술': '이비인후과',
+    '비염 수술': '이비인후과',
+    '비염수술': '이비인후과',
+    '비염': '이비인후과',
+    '수면무호흡증': '이비인후과',
+    '수면 무호흡증': '이비인후과',
+    '코골이': '이비인후과',
+    '이석증': '이비인후과',
+    '어지럼증': '이비인후과',
+    '난청': '이비인후과',
+    '이명': '이비인후과',
+    '청력검사': '이비인후과',
+    '보청기': '이비인후과',
     '무릎 로봇수술': '정형외과',
     '무릎로봇수술': '정형외과',
     '로봇인공관절수술': '정형외과',
@@ -494,31 +514,30 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
     region += ' ' + regionCandidates[1];
   }
 
-  // 검색 키워드 후보 생성 (질환명/수술명 ➔ 진료과목 ➔ 병원유형 순서로 정밀 시도)
+  // 검색 키워드 후보 생성
   const candidateKeywords: string[] = [];
   if (foundDiseases.length > 0) {
     for (const d of foundDiseases) {
-      // 1) [지역] [무릎 로봇수술] / [지역] [인공관절 수술]
       candidateKeywords.push(`${region} ${d}`.trim());
-      if (region === '다산동') candidateKeywords.push(`다산 ${d}`.trim());
-
-      // 2) [지역] [진료과목] (예: 다산 정형외과, 다산동 정형외과)
       if (diseaseToDeptMap[d]) {
-        if (region === '다산동') candidateKeywords.push(`다산 ${diseaseToDeptMap[d]}`.trim());
         candidateKeywords.push(`${region} ${diseaseToDeptMap[d]}`.trim());
       }
     }
   }
   if (foundHospType) {
-    if (region === '다산동') candidateKeywords.push(`다산 ${foundHospType}`.trim());
     candidateKeywords.push(`${region} ${foundHospType}`.trim());
   } else {
-    if (region === '다산동') candidateKeywords.push(`다산 병원`.trim());
     candidateKeywords.push(`${region} 병원`.trim());
   }
 
-  const uniqueCandidates = Array.from(new Set(candidateKeywords)).filter(Boolean);
-  if (uniqueCandidates.length === 0) uniqueCandidates.push(cleaned || prompt);
+  // 네이버 API 전용 질의어가 전달된 경우, 해당 검색어를 단독 최우선으로 지정
+  let uniqueCandidates: string[] = [];
+  if (customNaverQuery && customNaverQuery.trim()) {
+    uniqueCandidates = [customNaverQuery.trim()];
+  } else {
+    uniqueCandidates = Array.from(new Set(candidateKeywords)).filter(Boolean);
+    if (uniqueCandidates.length === 0) uniqueCandidates.push(cleaned || prompt);
+  }
 
   // 순수 네이버 공식 검색 API 호출 함수
   const fetchNaverSearch = async (kw: string) => {
