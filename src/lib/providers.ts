@@ -24,6 +24,11 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
   let response: Response | null = null;
   let lastErr = '';
 
+  console.log('[OPENAI REQUEST]', {
+    promptLength: prompt.length,
+    promptPreview: prompt.substring(0, 500)
+  });
+
   for (const url of urls) {
     try {
       response = await fetch(url, {
@@ -62,11 +67,7 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
   const data = await response.json();
   
   // 토큰 사용량 콘솔 출력
-  console.log('[OpenAI Usage]', {
-    prompt_tokens: data.usage?.prompt_tokens,
-    completion_tokens: data.usage?.completion_tokens,
-    total_tokens: data.usage?.total_tokens
-  });
+  console.log('[OPENAI USAGE]', data.usage);
 
   const choice = data.choices?.[0];
   const text = choice?.message?.content || '';
