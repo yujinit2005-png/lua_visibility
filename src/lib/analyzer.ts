@@ -260,8 +260,18 @@ export const executeRun = async (opts: RunOptions) => {
           
           const durationSeconds = Number(((Date.now() - taskStartTime) / 1000).toFixed(2));
 
-          // 네이버 판독 결과도 타 AI와 100% 동일한 판정 기준(analyzeAnswer)을 사용합니다.
+          // 네이버 판독 결과도 기본 분석기를 통과시키되, 
+          // 네이버 전용 실측 순위(naverRankPosition)가 있다면 해당 값으로 순위(first_position)와 노출 여부(mentioned)를 강제 오버라이드합니다.
           const analysis = analyzeAnswer(pRes.text, aliases, competitors);
+          if (tool === 'naver') {
+            if (pRes.naverRankPosition !== undefined && pRes.naverRankPosition !== null) {
+              analysis.first_position = pRes.naverRankPosition;
+              analysis.mentioned = true;
+            } else {
+              analysis.first_position = null;
+              analysis.mentioned = false;
+            }
+          }
 
           if (analysis.mentioned) mentionTasks++;
           successTasks++;
