@@ -471,7 +471,7 @@ export const generateAndUploadReport = async (
 
   const overallMention = modelStats.length > 0
     ? Number((modelStats.reduce((acc, m) => acc + m.mention_rate, 0) / modelStats.length).toFixed(2))
-    : (run?.overall_mention_rate ? run.overall_mention_rate / 100 : 0.79);
+    : 0;
 
   const webOverallMention = webModelStats.length > 0
     ? Number((webModelStats.reduce((acc, m) => acc + m.mention_rate, 0) / webModelStats.length).toFixed(2))
@@ -479,11 +479,11 @@ export const generateAndUploadReport = async (
 
   const overallRecommend = modelStats.length > 0
     ? Number((modelStats.reduce((acc, m) => acc + m.recommend_rate, 0) / modelStats.length).toFixed(2))
-    : 0.79;
+    : 0;
 
   const overallTop = modelStats.length > 0
     ? Number((modelStats.reduce((acc, m) => acc + m.top_rate, 0) / modelStats.length).toFixed(2))
-    : 0.72;
+    : 0;
 
   const extractCompetitorsFromAnswer = (a: any): string[] => {
     const detected: string[] = [];
