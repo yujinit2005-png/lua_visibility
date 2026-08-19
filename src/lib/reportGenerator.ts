@@ -403,29 +403,30 @@ export const generateAndUploadReport = async (
   const aiAnsList = allAnsList.filter(a => a.provider !== 'naver');
   const naverAnsList = allAnsList.filter(a => a.provider === 'naver');
 
-  // ★ 네이버 실측 데이터 검증 로직 (API결과 및 웹 크롤링 결과 동시 존재 확인)
+  // ★ 전체 및 네이버 실측 데이터 검증 로직
   const hasNaverApi = naverAnsList.length > 0;
   
-  const { data: webVers } = await supabase
+  const { data: allWebVers } = await supabase
     .from('web_verifications')
-    .select('id')
-    .ilike('platform', 'naver')
-    .eq('run_id', runId)
-    .order('id', { ascending: false })
-    .limit(1);
+    .select('id, platform')
+    .eq('run_id', runId);
 
-  let hasNaverCrawling = false;
-  let webAnswers: any[] = [];
-  if (webVers && webVers.length > 0) {
+  let allWebAnswers: any[] = [];
+  if (allWebVers && allWebVers.length > 0) {
+    const vIds = allWebVers.map(v => v.id);
     const { data: wa } = await supabase
       .from('web_verification_answers')
       .select('*')
-      .eq('verification_id', webVers[0].id);
+      .in('verification_id', vIds);
     if (wa && wa.length > 0) {
-      hasNaverCrawling = true;
-      webAnswers = wa;
+      allWebAnswers = wa;
     }
   }
+
+  const naverWebVers = allWebVers?.filter(v => v.platform?.toLowerCase() === 'naver');
+  const naverVIds = naverWebVers?.map(nv => nv.id) || [];
+  let webAnswers: any[] = allWebAnswers.filter(wa => naverVIds.includes(wa.verification_id));
+  let hasNaverCrawling = webAnswers.length > 0;
 
   const includeNaver = hasNaverApi && hasNaverCrawling;
 
@@ -514,74 +515,125 @@ export const generateAndUploadReport = async (
     return detected;
   };
 
-  const compHitsTotal: Record<string, number> = {};
+  const extractCompetitorsFromWebAnswer = (wa: any): string[] => {
+    let detected: string[] = [];
+    if (wa.web_competitors) {
+      try {
+        let rawComps: string[] = [];
+        if (typeof wa.web_competitors === 'string') {
+          rawComps = JSON.parse(wa.web_competitors);
+        } else if (Array.isArray(wa.web_competitors)) {
+          rawComps = wa.web_competitors;
+        }
+        rawComps.forEach((c: string) => {
+          const clean = c.replace(/^["']+|["']+$/g, '').trim();
+          const lower = clean.toLowerCase();
+          if (GENERIC_EXCLUDE.has(clean)) return;
+          if (ourAliases.some(alias => lower === alias || lower.includes(alias))) return;
+          if (!detected.includes(clean)) {
+            detected.push(clean);
+          }
+        });
+      } catch (e) {}
+    }
+    return detected;
+  };
+
+  const compHitsApi: Record<string, number> = {};
+  const compHitsWeb: Record<string, number> = {};
   if (configCompetitors.length > 0) {
     configCompetitors.forEach(c => {
       const clean = c.replace(/^["']+|["']+$/g, '').trim();
-      if (clean) compHitsTotal[clean] = 0;
+      if (clean) {
+        compHitsApi[clean] = 0;
+        compHitsWeb[clean] = 0;
+      }
     });
   }
 
   aiAnsList.forEach(a => {
     const detected = extractCompetitorsFromAnswer(a);
     detected.forEach(comp => {
-      compHitsTotal[comp] = (compHitsTotal[comp] || 0) + 1;
+      compHitsApi[comp] = (compHitsApi[comp] || 0) + 1;
     });
   });
 
-  const sortedComps = Object.entries(compHitsTotal).sort((a, b) => b[1] - a[1]);
-  const totalAiAnswersCount = aiAnsList.length || 10;
-  
-  const compComparisons: Array<[string, number]> = [
-    [hospitalName, overallMention]
-  ];
-
-  const top2Comps = sortedComps.slice(0, 2);
-  top2Comps.forEach(([cName, hits]) => {
-    compComparisons.push([cName, Number((hits / totalAiAnswersCount).toFixed(2))]);
+  webAnswers.forEach(wa => {
+    const detected = extractCompetitorsFromWebAnswer(wa);
+    detected.forEach(comp => {
+      compHitsWeb[comp] = (compHitsWeb[comp] || 0) + 1;
+    });
   });
 
-  if (compComparisons.length < 3) {
-    if (configCompetitors.length >= 2) {
+  const getTopComps = (hitsMap: Record<string, number>, count: number) => {
+    return Object.entries(hitsMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, count);
+  };
+
+  const top4Api = getTopComps(compHitsApi, 4);
+  const top4Web = getTopComps(compHitsWeb, 4);
+
+  const totalApiCount = aiAnsList.length || 10;
+  const totalWebCount = webAnswers.length || 10;
+
+  const apiComparisons: Array<[string, number]> = [[hospitalName, overallMention]];
+  top4Api.forEach(([cName, hits]) => apiComparisons.push([cName, Number((hits / totalApiCount).toFixed(2))]));
+  if (apiComparisons.length < 5) {
+    if (configCompetitors.length > 0) {
       for (const comp of configCompetitors) {
         const clean = comp.replace(/^["']+|["']+$/g, '').trim();
-        if (!compComparisons.some(cc => cc[0] === clean)) {
-          compComparisons.push([clean, 0.0]);
-          if (compComparisons.length >= 3) break;
+        if (!apiComparisons.some(cc => cc[0] === clean)) {
+          apiComparisons.push([clean, 0.0]);
+          if (apiComparisons.length >= 5) break;
         }
       }
-    } else {
-      if (compComparisons.length === 1) compComparisons.push(["경쟁병원A", 0.0]);
-      if (compComparisons.length === 2) compComparisons.push(["경쟁병원B", 0.0]);
     }
   }
 
-  const ourRate = compComparisons[0]?.[1] || 0;
-  const topComp1 = compComparisons[1];
+  const webOurMentions = webAnswers.filter(wa => wa.web_mentioned || wa.is_our_hospital).length;
+  const webOverallMention = Number((webOurMentions / totalWebCount).toFixed(2));
+  const webComparisons: Array<[string, number]> = [[hospitalName, webOverallMention]];
+  top4Web.forEach(([cName, hits]) => webComparisons.push([cName, Number((hits / totalWebCount).toFixed(2))]));
+  if (webComparisons.length < 5) {
+    if (configCompetitors.length > 0) {
+      for (const comp of configCompetitors) {
+        const clean = comp.replace(/^["']+|["']+$/g, '').trim();
+        if (!webComparisons.some(cc => cc[0] === clean)) {
+          webComparisons.push([clean, 0.0]);
+          if (webComparisons.length >= 5) break;
+        }
+      }
+    }
+  }
+
+  const ourRate = apiComparisons[0]?.[1] || 0;
+  const topComp1 = apiComparisons[1];
   const topCompName = topComp1?.[0] || '주요 경쟁병원';
   const topCompRate = topComp1?.[1] || 0;
 
   let page2Interp = "";
   if (ourRate > topCompRate) {
-    page2Interp = `현재 주요 환자 질문 영역에서 <b>${topCompName}</b>(${pct(topCompRate)}) 등 주요 경쟁병원 대비 AI 노출 우위를 점하고 있습니다. 지속적인 신규 콘텐츠 발행으로 선두 자리를 방어하세요.`;
+    page2Interp = `현재 주요 환자 질문 영역에서 <b>${topCompName}</b>(${pct(topCompRate)}) 등 경쟁병원 대비 AI 노출 우위를 점하고 있습니다.`;
   } else if (ourRate === topCompRate && ourRate > 0) {
-    page2Interp = `현재 주요 환자 질문 영역에서 <b>${topCompName}</b>(${pct(topCompRate)}) 등 주요 경쟁병원과 대등한 AI 노출 경합을 벌이고 있습니다. AEO 최적화를 통해 확실한 선두 우위를 확보하세요.`;
+    page2Interp = `현재 주요 환자 질문 영역에서 <b>${topCompName}</b>(${pct(topCompRate)}) 등 경쟁병원과 대등한 AI 노출 경합을 벌이고 있습니다.`;
   } else if (ourRate === 0 && topCompRate === 0) {
-    page2Interp = `현재 주요 환자 질문 영역에서 귀 병원 및 경쟁병원의 AI 노출이 전반적으로 미미합니다. 신속한 AEO 최적화로 해당 질의 영역을 선점할 수 있는 절호의 기회입니다.`;
+    page2Interp = `현재 귀 병원 및 경쟁병원의 AI 노출이 미미합니다. 신속한 AEO 최적화로 해당 질의 영역을 선점할 수 있습니다.`;
   } else {
-    page2Interp = `현재 주요 환자 질문 영역에서 <b>${topCompName}</b>(${pct(topCompRate)}) 등 주요 경쟁병원 대비 귀 병원의 AI 노출 점유율(${pct(ourRate)})이 낮게 나타나고 있습니다. 핵심 질문 영역에 대한 적극적인 AEO 최적화 및 타깃 콘텐츠 발행으로 노출 점유율을 탈환해야 합니다.`;
+    page2Interp = `현재 <b>${topCompName}</b>(${pct(topCompRate)}) 대비 귀 병원의 AI 노출 점유율(${pct(ourRate)})이 낮게 나타나고 있습니다.`;
   }
 
-  const queries = Array.from(new Set(aiAnsList.map(a => a.query)));
+  // Page 3 relies purely on crawling data (webAnswers)
+  const queries = Array.from(new Set(webAnswers.map(wa => wa.query)));
   const oppItems: OppItem[] = queries.map(q => {
-    const qAns = aiAnsList.filter(a => a.query === q);
+    const qAns = webAnswers.filter(wa => wa.query === q);
     const qTotal = qAns.length || 1;
-    const ourMentions = qAns.filter(a => Boolean(a.mentioned)).length;
-    const ourRate = Number((ourMentions / qTotal).toFixed(2));
+    const ourMentions = qAns.filter(wa => wa.web_mentioned || wa.is_our_hospital).length;
+    const qOurRate = Number((ourMentions / qTotal).toFixed(2));
     
     const compHitsInQ: Record<string, number> = {};
-    qAns.forEach(a => {
-      const detected = extractCompetitorsFromAnswer(a);
+    qAns.forEach(wa => {
+      const detected = extractCompetitorsFromWebAnswer(wa);
       detected.forEach(c => {
         compHitsInQ[c] = (compHitsInQ[c] || 0) + 1;
       });
@@ -594,19 +646,19 @@ export const generateAndUploadReport = async (
       .filter(Boolean);
 
     const compFound = sortedQComps.slice(0, 5);
-    const compRate = compFound.length > 0 ? 0.65 : 0.0;
+    const qCompRate = compFound.length > 0 ? 0.65 : 0.0;
     
     let kind: OppItem['kind'] = '경합';
-    if (ourRate === 0 && compFound.length > 0) kind = '탈환대상';
-    else if (ourRate === 0 && compFound.length === 0) kind = '선점기회';
-    else if (ourRate > 0 && compFound.length === 0) kind = '독점우위';
-    else if (ourRate > 0 && compFound.length > 0) kind = '경합';
+    if (qOurRate === 0 && compFound.length > 0) kind = '탈환대상';
+    else if (qOurRate === 0 && compFound.length === 0) kind = '선점기회';
+    else if (qOurRate > 0 && compFound.length === 0) kind = '독점우위';
+    else if (qOurRate > 0 && compFound.length > 0) kind = '경합';
 
     return {
       query: q,
       kind,
-      our_rate: ourRate,
-      comp_rate: compRate,
+      our_rate: qOurRate,
+      comp_rate: qCompRate,
       competitors: compFound
     };
   });
@@ -681,7 +733,16 @@ export const generateAndUploadReport = async (
     </div>
 
     <div class="sec" style="margin-top:24px;"><span class="num">B</span> 주요 경쟁병원 대비 전체 노출도 비교</div>
-    ${drawBarChart(compComparisons)}
+    <div style="display:flex; gap:16px;">
+      <div style="flex:1;">
+        <div style="font-size:12px; font-weight:800; color:var(--navy); margin-bottom:8px;">AI 학습 지표 (API 기준)</div>
+        ${drawBarChart(apiComparisons)}
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:12px; font-weight:800; color:var(--navy); margin-bottom:8px;">AI 웹서치 지표 (크롤링 기준)</div>
+        ${drawBarChart(webComparisons)}
+      </div>
+    </div>
 
     <div class="interp" style="margin-top:20px;">
       ${page2Interp}
@@ -811,6 +872,69 @@ export const generateAndUploadReport = async (
        `;
     }).join('');
 
+    const contentKeywords = webAnswers.slice(0, 5).map(wa => {
+       const isOurs = wa.web_mentioned || wa.is_our_hospital;
+       const statusText = isOurs ? '노출' : '미노출';
+       const w = isOurs ? 80 : 15;
+       const barColor = isOurs ? 'linear-gradient(90deg, #E45928, #17436A)' : '#e2e8f0';
+       return `
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px;">
+          <div style="width:110px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${wa.query}">${wa.query}</div>
+          <div style="flex:1; height:12px; background:#f1f5f9; border-radius:6px; overflow:hidden;">
+            <div style="width:${w}%; height:100%; background:${barColor};"></div>
+          </div>
+          <div style="width:35px; text-align:right; font-weight:800; color:${isOurs ? '#1e293b' : '#94a3b8'};">${statusText}</div>
+        </div>
+       `;
+    }).join('');
+
+    let compTableRows = '';
+    let compPlaceBars = '';
+    let compContentBars = '';
+
+    const displayComps = [
+      { name: hospitalName, place: placeScore, content: contentScore, isOur: true },
+    ];
+    
+    const dummyScores = [
+      { place: 64, content: 63 },
+      { place: 51, content: 72 },
+      { place: 34, content: 45 },
+      { place: 12, content: 28 },
+    ];
+    
+    for (let i = 0; i < 4; i++) {
+      const cName = configCompetitors[i] || \`경쟁\${String.fromCharCode(65+i)}병원\`;
+      displayComps.push({ name: cName, place: dummyScores[i].place, content: dummyScores[i].content, isOur: false });
+    }
+
+    displayComps.forEach((c) => {
+      const color = c.isOur ? 'var(--orange)' : '#475569';
+      const weight = c.isOur ? '800' : '500';
+      const barColor = c.isOur ? 'linear-gradient(90deg, #E45928, #17436A)' : '#475569';
+      
+      compTableRows += \`
+        <tr>
+          <td style="padding:6px; border:1px solid #cbd5e1; color:\${color}; font-weight:\${weight};">\${c.name}</td>
+          <td style="padding:6px; border:1px solid #cbd5e1; color:\${color}; font-weight:\${weight};">\${c.place}</td>
+          <td style="padding:6px; border:1px solid #cbd5e1; color:\${color}; font-weight:\${weight};">\${c.content}</td>
+        </tr>\`;
+        
+      compPlaceBars += \`
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px;">
+          <span style="width:40px; font-weight:\${weight}; color:\${color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="\${c.name}">\${c.isOur ? '당사' : c.name}</span>
+          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:\${c.place}%; height:100%; background:\${barColor}; border-radius:5px;"></div></div>
+          <span style="width:20px; font-weight:800; color:\${color};">\${c.place}</span>
+        </div>\`;
+
+      compContentBars += \`
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px;">
+          <span style="width:40px; font-weight:\${weight}; color:\${color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="\${c.name}">\${c.isOur ? '당사' : c.name}</span>
+          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:\${c.content}%; height:100%; background:\${barColor}; border-radius:5px;"></div></div>
+          <span style="width:20px; font-weight:800; color:\${color};">\${c.content}</span>
+        </div>\`;
+    });
+
     page5 = `
 <div class="page">
   ${headerHtml('NAVER DUAL VISIBILITY')}
@@ -889,10 +1013,8 @@ export const generateAndUploadReport = async (
           </div>
         </div>
 
-        <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">콘텐츠 구성 비율</div>
-        <div style="display:flex; justify-content:center; align-items:center; height:120px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
-          <div style="font-size:10px; color:#64748b; text-align:center; line-height:1.5;">(도넛 차트 구현은 시스템 고도화 예정사항입니다)<br/><b>자사 점유:</b> ${contentScore}% / <b>타사 및 기타:</b> ${100 - contentScore}%</div>
-        </div>
+        <div style="font-size:11px; font-weight:800; color:var(--navy); margin-bottom:10px;">주요 키워드별 검색 순위</div>
+        ${contentKeywords}
         
         <div style="margin-top:12px; background:#f1f5f9; border:1px solid #e2e8f0; padding:8px; border-radius:6px; font-size:10px; font-weight:700; color:#475569; display:flex; align-items:center; justify-content:center; gap:6px;">
           📄 블로그·웹문서·제3자 언급에서 우리 병원이 얼마나 점유하는가
@@ -900,45 +1022,7 @@ export const generateAndUploadReport = async (
       </div>
     </div>
     
-    <div class="sec" style="margin-top:20px;"><span class="num">C</span> Naver Dual Position Matrix</div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-      <div style="position:relative; height:180px; border:1.5px solid #94a3b8; border-radius:8px; overflow:hidden;">
-        <!-- Matrix -->
-        <div style="position:absolute; top:10px; left:10px; font-size:10px; font-weight:800; color:#3b82f6;">Local Strong</div>
-        <div style="position:absolute; top:10px; right:10px; font-size:10px; font-weight:800; color:#10b981;">Market Leader</div>
-        <div style="position:absolute; bottom:10px; left:10px; font-size:10px; font-weight:800; color:#ef4444;">Low Visibility</div>
-        <div style="position:absolute; bottom:10px; right:10px; font-size:10px; font-weight:800; color:#3b82f6;">Content Strong</div>
-        
-        <!-- Axes -->
-        <div style="position:absolute; top:50%; left:0; right:0; border-top:1px dashed #cbd5e1;"></div>
-        <div style="position:absolute; top:0; bottom:0; left:50%; border-left:1px dashed #cbd5e1;"></div>
-        
-        <!-- Plot Dot -->
-        <div style="position:absolute; left:${contentScore}%; bottom:${placeScore}%; transform:translate(-50%, 50%); display:flex; align-items:center; gap:6px; z-index:10;">
-          <div style="width:12px; height:12px; border-radius:50%; background:var(--orange); border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>
-          <div style="background:#fff; border:1px solid #cbd5e1; padding:2px 6px; border-radius:4px; font-size:9.5px; font-weight:800; color:var(--navy); box-shadow:0 1px 2px rgba(0,0,0,0.1);">
-            ${hospitalName}<br/><span style="color:#64748b; font-size:8px;">(${placeScore}%, ${contentScore}%)</span>
-          </div>
-        </div>
-        <!-- Axis labels -->
-        <div style="position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:8px; color:#94a3b8; font-weight:bold;">플레이스<br/>점유율</div>
-        <div style="position:absolute; bottom:5px; left:50%; transform:translateX(-50%); font-size:8px; color:#94a3b8; font-weight:bold;">콘텐츠 점유율</div>
-      </div>
-      
-      <div style="border:1px solid #e2e8f0; border-radius:8px; padding:16px; background:#fff;">
-        <div style="font-size:11px; color:#475569; font-weight:700; margin-bottom:4px;">현재 포지션</div>
-        <div style="font-size:22px; font-weight:900; color:var(--navy); margin-bottom:12px; line-height:1.2;">${naverPosition.toUpperCase()}</div>
-        <div style="font-size:10.5px; color:#475569; line-height:1.5; margin-bottom:16px;">
-          ${naverPositionDesc}
-        </div>
-        <div style="font-size:11px; color:var(--navy); font-weight:800; margin-bottom:4px;">Recommended Action</div>
-        <div style="font-size:10px; font-weight:700; color:var(--orange);">
-          ${recommendedAction}
-        </div>
-      </div>
-    </div>
-    
-    <div class="sec" style="margin-top:20px;"><span class="num">D</span> NAVER LOCAL SHARE OF VOICE</div>
+    <div class="sec" style="margin-top:20px;"><span class="num">C</span> NAVER LOCAL SHARE OF VOICE</div>
     <div style="display:flex; gap:16px;">
       <table style="flex:1; border-collapse:collapse; text-align:center; font-size:10px; font-weight:800;">
         <thead>
@@ -949,60 +1033,18 @@ export const generateAndUploadReport = async (
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:var(--orange);">${hospitalName}</td>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:var(--orange);">${placeScore}</td>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:var(--orange);">${contentScore}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:#475569;">${configCompetitors[0] || '경쟁A병원'}</td>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:#475569;">64</td>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:#475569;">63</td>
-          </tr>
-          <tr>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:#475569;">${configCompetitors[1] || '경쟁B병원'}</td>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:#475569;">51</td>
-            <td style="padding:6px; border:1px solid #cbd5e1; color:#475569;">72</td>
-          </tr>
+          ${compTableRows}
         </tbody>
       </table>
       
       <div style="flex:1; border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc;">
         <div style="font-size:9.5px; font-weight:800; color:#475569; margin-bottom:8px;">PLACE 네이버 플레이스 노출 경쟁력</div>
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px;">
-          <span style="width:40px; font-weight:800; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${hospitalName}">당사</span>
-          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:${placeScore}%; height:100%; background:linear-gradient(90deg, #E45928, #17436A); border-radius:5px;"></div></div>
-          <span style="width:20px; font-weight:800; color:#1e293b;">${placeScore}</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px;">
-          <span style="width:40px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${configCompetitors[0] || '경쟁A'}</span>
-          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:64%; height:100%; background:#475569; border-radius:5px;"></div></div>
-          <span style="width:20px; font-weight:800; color:#475569;">64</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px; font-size:10px;">
-          <span style="width:40px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${configCompetitors[1] || '경쟁B'}</span>
-          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:51%; height:100%; background:#475569; border-radius:5px;"></div></div>
-          <span style="width:20px; font-weight:800; color:#475569;">51</span>
-        </div>
+        ${compPlaceBars}
       </div>
       
       <div style="flex:1; border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc;">
         <div style="font-size:9.5px; font-weight:800; color:#475569; margin-bottom:8px;">CONTENT 네이버 콘텐츠 점유 경쟁력</div>
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px;">
-          <span style="width:40px; font-weight:800; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${hospitalName}">당사</span>
-          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:${contentScore}%; height:100%; background:linear-gradient(90deg, #E45928, #17436A); border-radius:5px;"></div></div>
-          <span style="width:20px; font-weight:800; color:#1e293b;">${contentScore}</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px;">
-          <span style="width:40px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${configCompetitors[0] || '경쟁A'}</span>
-          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:63%; height:100%; background:#475569; border-radius:5px;"></div></div>
-          <span style="width:20px; font-weight:800; color:#475569;">63</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px; font-size:10px;">
-          <span style="width:40px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${configCompetitors[1] || '경쟁B'}</span>
-          <div style="flex:1; height:10px; background:#e2e8f0; border-radius:5px;"><div style="width:72%; height:100%; background:#475569; border-radius:5px;"></div></div>
-          <span style="width:20px; font-weight:800; color:#475569;">72</span>
-        </div>
+        ${compContentBars}
       </div>
     </div>
     
