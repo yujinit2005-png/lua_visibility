@@ -13,18 +13,70 @@ export interface ProviderResult {
   naverRankPosition?: number | null; // 네이버 지역검색: 병원명이 뮇번째에 노출되었는지 (null=미노출)
 }
 
+// ============================================================
+// [v1.0.8 이전 구버전 callOpenAI — 환각 문제로 주석 처리]
+// ============================================================
+// export const callOpenAI_OLD = async (prompt: string, config: ProviderConfig): Promise<ProviderResult> => {
+//   const modelName = 'gpt-4o';
+//   const urls = ['/api-openai/v1/chat/completions', 'https://api.openai.com/v1/chat/completions'];
+//   let response: Response | null = null;
+//   let lastErr = '';
+//   for (const url of urls) {
+//     try {
+//       response = await fetch(url, {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+//         body: JSON.stringify({
+//           model: modelName,
+//           messages: [
+//             { role: 'system', content: '사용자의 질문에 실시간 웹 검색 결과를 바탕으로 최신 및 위치 정보(행정구역)를 정확히 파악하여 답변하세요. 검색된 결과를 바탕으로 병원명, 주소, 진료시간, 출처(URL)를 구조화하여 한국어로 답변해야 합니다. 실제 존재하지 않는 병원이나 기관을 절대 만들어내지(환각) 마세요.' },
+//             { role: 'user', content: prompt }
+//           ],
+//           temperature: 0.1
+//         })
+//       });
+//       if (response.ok) break;
+//       if (response.status === 401 || response.status === 429 || response.status === 400) break;
+//     } catch (e: any) { lastErr = e.message || String(e); }
+//   }
+//   if (!response || !response.ok) { const err = response ? await response.text() : lastErr; throw new Error(`OpenAI Error: ${err}`); }
+//   const data = await response.json();
+//   const choice = data.choices?.[0];
+//   const text = choice?.message?.content || '';
+//   const citations: string[] = [];
+//   if (choice?.message?.annotations) { choice.message.annotations.forEach((ann: any) => { if (ann.type === 'url_citation' && ann.url) citations.push(ann.url); }); }
+//   return { text, model: data.model || modelName, searchUsed: true, citations: citations.length > 0 ? citations : null, httpStatus: response.status };
+// };
+
+// ============================================================
+// [v1.0.9] callOpenAI — gpt-4o-search-preview + 환각 억제 프롬프트 (A+B 플랜)
+// 변경사항:
+//   A. 모델: gpt-4o → gpt-4o-search-preview (실시간 웹 검색 내장)
+//   B. 프롬프트: 핵심 환각 방지 규칙만 간결하게 작성
+// ============================================================
 export const callOpenAI = async (prompt: string, config: ProviderConfig): Promise<ProviderResult> => {
-  const modelName = 'gpt-4o';
+  const modelName = 'gpt-4o-search-preview';
   const urls = [
     '/api-openai/v1/chat/completions',
     'https://api.openai.com/v1/chat/completions'
   ];
 
-  
+  const systemPrompt = `당신은 대한민국 의료기관 정보 검색 전문가입니다.
+
+[핵심 규칙]
+1. 반드시 실제 웹 검색 결과에 존재하는 병원만 출력한다.
+2. 검색으로 확인되지 않은 병원명, 주소, 진료시간, 전화번호는 절대 생성하거나 추론하지 않는다.
+3. 병원명과 주소가 동일한 출처에서 함께 확인된 경우에만 출력한다.
+4. 확인되지 않은 항목은 반드시 "확인되지 않음"으로 표시한다.
+5. 출처 URL은 실제 검색 결과에서 가져온 것만 사용한다.
+
+병원명, 주소, 진료시간, 전화번호, 공식 홈페이지를 구조화하여 한국어로 답변하라.`;
+
   let response: Response | null = null;
   let lastErr = '';
 
   console.log('[OPENAI REQUEST]', {
+    model: modelName,
     promptLength: prompt.length,
     promptPreview: prompt.substring(0, 500)
   });
@@ -40,17 +92,13 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
         body: JSON.stringify({
           model: modelName,
           messages: [
-            {
-              role: 'system',
-              content: '사용자의 질문에 실시간 웹 검색 결과를 바탕으로 최신 및 위치 정보(행정구역)를 정확히 파악하여 답변하세요. 검색된 결과를 바탕으로 병원명, 주소, 진료시간, 출처(URL)를 구조화하여 한국어로 답변해야 합니다. 실제 존재하지 않는 병원이나 기관을 절대 만들어내지(환각) 마세요.'
-            },
+            { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt }
           ],
           temperature: 0.1
         })
       });
       if (response.ok) break;
-      // 404가 아닌 다른 에러(401 등)면 텍스트 읽고 중단
       if (response.status === 401 || response.status === 429 || response.status === 400) {
         break;
       }
@@ -58,14 +106,14 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
       lastErr = e.message || String(e);
     }
   }
-  
+
   if (!response || !response.ok) {
     const err = response ? await response.text() : lastErr;
     throw new Error(`OpenAI Error (${response ? response.status : 'Network Error'}): ${err}`);
   }
-  
+
   const data = await response.json();
-  
+
   // 토큰 사용량 콘솔 출력
   console.log('[OPENAI USAGE]', data.usage);
 
