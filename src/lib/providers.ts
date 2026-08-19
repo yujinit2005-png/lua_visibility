@@ -638,12 +638,28 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
 🔍 실제 검색 쿼리: '${actualSearchKeyword}'
 📊 총 검색 결과: ${totalCount || items.length}건 중 상위 ${items.length}건`;
 
+  let naverRankPosition: number | null = null;
+  const aliasList = _aliases || [];
+  for (let i = 0; i < items.length; i++) {
+    const title = cleanTag(items[i].title).replace(/\s/g, '').toLowerCase();
+    const desc = cleanTag(items[i].description).replace(/\s/g, '').toLowerCase();
+    const found = aliasList.some(a => {
+      const cleanA = a.replace(/\s/g, '').toLowerCase();
+      return title.includes(cleanA) || desc.includes(cleanA);
+    });
+    if (found) {
+      naverRankPosition = i + 1;
+      break;
+    }
+  }
+
   return {
     text: `${resultHeader}\n\n${formattedItems || '(검색된 지역 병원 데이터가 없습니다.)'}`,
     model: 'naver-local-search',
     searchUsed: true,
     citations: citations.length > 0 ? citations : null,
     httpStatus: 200,
+    naverRankPosition
   };
 };
 

@@ -169,3 +169,5 @@ CREATE TABLE public.trust_signal_audits (
   - 하단: 최단기 우수 등급(85점↑) 달성을 위한 종합 액션 가이드 박스
 - **리포트 6페이지 (Trust Signal Audit)**: C(신뢰 콘텐츠 4대 자산) & D(기술적 가독성) 12개 점검 리스트 및 실재 텍스트/링크 증빙 출력.
 - **리포트 7페이지 (Action Priority)**: 미달된 항목 중 개선 효과가 가장 높은 **5대 핵심 개선 과제(Action Plan)** 자동 산출.
+
+

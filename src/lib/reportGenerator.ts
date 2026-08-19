@@ -927,7 +927,7 @@ export const generateAndUploadReport = async (
     
     // C구역 변수 제거됨 (사용 안함)
 
-    const topKeywords = naverAnsList.slice(0, 10).map(a => {
+    const topKeywords = naverAnsList.map(a => {
        const rank = a.first_position;
        const rankText = rank ? `${rank}위` : '미노출';
        const w = rank ? Math.max(15, 100 - (rank * 2)) : 10;
@@ -944,15 +944,15 @@ export const generateAndUploadReport = async (
        `;
     }).join('');
 
-    const contentKeywords = naverWebAnswers.slice(0, 10).map(wa => {
-       const isOurs = wa.web_mentioned || wa.is_our_hospital;
+    const contentKeywords = naverAnsList.map(a => {
+       const wa = naverWebAnswers.find(w => w.query === a.query);
+       const isOurs = wa ? (wa.web_mentioned || wa.is_our_hospital) : false;
        const statusText = isOurs ? '노출' : '미노출';
        const w = isOurs ? 80 : 15;
        const barColor = isOurs ? 'linear-gradient(90deg, #E45928, #17436A)' : '#e2e8f0';
-       const dispQ = getShortQuery(wa.query);
        return `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px;">
-          <div style="width:110px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${dispQ}">${dispQ}</div>
+          <div style="flex:1; color:#475569; line-height:1.3; word-break:keep-all; min-width:110px;" title="${a.query}">${a.query}</div>
           <div style="flex:1; height:12px; background:#f1f5f9; border-radius:6px; overflow:hidden;">
             <div style="width:${w}%; height:100%; background:${barColor};"></div>
           </div>
