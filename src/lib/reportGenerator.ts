@@ -919,10 +919,36 @@ export const generateAndUploadReport = async (
     const unranked = naverAnsList.filter(a => !a.first_position || a.first_position === 0).length;
     const placeScore = Math.round((exposed / naverTotal) * 100);
 
-    const getShortQuery = (fullQ: string) => {
-      const idx = queriesList.findIndex(q => q.trim() === fullQ.trim());
-      if (idx >= 0 && idx < naverQueriesList.length && naverQueriesList[idx]) {
+    const getShortQuery = (fullQ: string, idx?: number) => {
+      // 1순위: index 기반 naverQueriesList 매칭
+      if (idx !== undefined && idx >= 0 && idx < naverQueriesList.length && naverQueriesList[idx]) {
         return naverQueriesList[idx];
+      }
+      // 2순위: index 기반 naverWebAnswers 매칭 (크롤링된 실제 네이버 전용 질의어)
+      if (idx !== undefined && idx >= 0 && idx < naverWebAnswers.length && naverWebAnswers[idx]?.query) {
+        return naverWebAnswers[idx].query;
+      }
+      // 3순위: fullQ 텍스트 정규화 후 queriesList 매칭
+      const cleanFullQ = (fullQ || '').replace(/^[A-Za-z0-9_]+[:.\-\s]+/, '').replace(/\s+/g, ' ').trim();
+      const qIdx = queriesList.findIndex(q => {
+        const cleanQ = (q || '').replace(/^[A-Za-z0-9_]+[:.\-\s]+/, '').replace(/\s+/g, ' ').trim();
+        return cleanQ === cleanFullQ || cleanQ.includes(cleanFullQ) || cleanFullQ.includes(cleanQ);
+      });
+      if (qIdx >= 0 && qIdx < naverQueriesList.length && naverQueriesList[qIdx]) {
+        return naverQueriesList[qIdx];
+      }
+      if (qIdx >= 0 && qIdx < naverWebAnswers.length && naverWebAnswers[qIdx]?.query) {
+        return naverWebAnswers[qIdx].query;
+      }
+      // 4순위: naverWebAnswers 중 질의어가 존재하는 경우
+      const matchedWeb = naverWebAnswers.find(w => w.query && (cleanFullQ.includes(w.query) || w.query.includes(cleanFullQ)));
+      if (matchedWeb && matchedWeb.query) {
+        return matchedWeb.query;
+      }
+      // 5순위: naverQueriesList 중 매칭되는 것
+      const matchedNaver = naverQueriesList.find(nq => nq && (cleanFullQ.includes(nq) || nq.includes(cleanFullQ)));
+      if (matchedNaver) {
+        return matchedNaver;
       }
       return fullQ;
     };
@@ -950,15 +976,15 @@ export const generateAndUploadReport = async (
     
     // C구역 변수 제거됨 (사용 안함)
 
-    const getTopKeywordHtml = (a: any) => {
+    const getTopKeywordHtml = (a: any, idx?: number) => {
        const rank = a.first_position;
        const rankText = rank ? `${rank}위` : '미노출';
        const w = rank ? Math.max(15, 100 - (rank * 2)) : 10;
        const barColor = (rank && rank <= 3) ? 'linear-gradient(90deg, #E45928, #17436A)' : rank ? '#475569' : '#e2e8f0';
-       const dispQ = getShortQuery(a.query);
+       const dispQ = getShortQuery(a.query, idx);
        return `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px;">
-          <div style="width:110px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${dispQ}">${dispQ}</div>
+          <div style="width:125px; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${dispQ}">${dispQ}</div>
           <div style="flex:1; height:12px; background:#f1f5f9; border-radius:6px; overflow:hidden;">
             <div style="width:${w}%; height:100%; background:${barColor};"></div>
           </div>
@@ -994,7 +1020,7 @@ export const generateAndUploadReport = async (
        const statusText = isOurs ? '노출' : '미노출';
        const w = isOurs ? 80 : 15;
        const barColor = isOurs ? 'linear-gradient(90deg, #E45928, #17436A)' : '#e2e8f0';
-       const dispQ = getShortQuery(a.query);
+       const dispQ = a.query;
        return `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px;">
           <div style="flex:1; color:#475569; line-height:1.3; word-break:keep-all; min-width:110px;" title="${a.query}">${dispQ}</div>
@@ -1009,7 +1035,7 @@ export const generateAndUploadReport = async (
     const firstChunk = naverAnsList.slice(0, hasMultipleNaverPages ? 16 : naverAnsList.length);
     const secondChunk = hasMultipleNaverPages ? naverAnsList.slice(16) : [];
     
-    const topKeywords = firstChunk.map(a => getTopKeywordHtml(a)).join('');
+    const topKeywords = firstChunk.map((a, idx) => getTopKeywordHtml(a, idx)).join('');
     const contentKeywords = firstChunk.map((a, idx) => getContentKeywordHtml(a, idx)).join('');
 
     let compTableRows = '';
@@ -1186,7 +1212,7 @@ export const generateAndUploadReport = async (
 </div>`;
 
     if (hasMultipleNaverPages) {
-      const topKeywords2 = secondChunk.length > 0 ? secondChunk.map(a => getTopKeywordHtml(a)).join('') : '';
+      const topKeywords2 = secondChunk.length > 0 ? secondChunk.map((a, idx) => getTopKeywordHtml(a, idx + firstChunk.length)).join('') : '';
       const contentKeywords2 = secondChunk.length > 0 ? secondChunk.map((a, idx) => getContentKeywordHtml(a, idx + firstChunk.length)).join('') : '';
       
       page5 += `
