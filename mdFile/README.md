@@ -1,4 +1,4 @@
-# LUVIS AI Visibility Web Application (v1.0.4)
+# LUVIS AI Visibility Web Application (v1.0.9)
 
 대형 언어 모델(ChatGPT, Google Gemini, Perplexity, Naver API Hub, Claude 등)에서 특정 병원이 잠재 환자 질문에 얼마나 노출되고 추천되는지를 실시간으로 측정, 검증 및 분석하는 **LUVIS AI 가시성 진단 시스템**입니다.
 
@@ -13,7 +13,8 @@
 5. [05. 리포트 생성 및 스토리지 관리](./05_Report_and_Storage_Management.md)
 6. [06. 다중 회차 가시성 추이 분석 대시보드](./06_Multi_Run_Trend_Analysis_Dashboard.md)
 7. [07. 데이터베이스 스키마 및 보안 규칙](./07_Database_Schema_and_Security.md)
-8. [업데이트 이력 (CHANGELOG)](./CHANGELOG.md)
+8. [08. 네이버 로컬 가시성(Naver Dual) 설계서](./08_Naver_Dual_Visibility_설계서.md)
+9. [업데이트 이력 (CHANGELOG)](./CHANGELOG.md)
 
 ---
 
@@ -21,8 +22,8 @@
 
 * **Frontend**: React 19, Vite, TypeScript, Tailwind CSS, Lucide React, Recharts
 * **Backend & Storage**: Supabase PostgreSQL, Supabase Storage (`lua_visibility_file`)
-* **AI Providers**: OpenAI (ChatGPT), Google Generative AI (Gemini 2.0 Flash), Perplexity AI (Sonar), Naver API Hub (Local Search), Anthropic (Claude 3.5)
-* **Proxy Engine**: Vite Reverse Proxy (`/api-openai`, `/api-perplexity`, `/api-anthropic`, `/api-naver`)
+* **AI Providers**: OpenAI (`gpt-4o` + `web_search`), Google Generative AI (`gemini-2.0-flash`), Perplexity AI (`sonar-pro`), Naver API Hub (Local Search), Anthropic (`claude-3-5-sonnet`)
+* **Proxy Engine**: Vite Reverse Proxy (`/api-openai`, `/api-perplexity`, `/api-anthropic`, `/api-naver`, `/api-proxy`)
 
 ---
 

@@ -1,29 +1,15 @@
-## [v1.0.10] - 2026-08-21
+## [v1.0.9] - 2026-08-21
 
-### 🛠️ 버그 수정 및 안정화 (Bug Fixes & Stabilization)
+### 🛠️ 버그 수정 및 최적화 (Bug Fixes & Improvements)
 - **네이버 로컬 가시성(Naver Dual) 리포트 및 웹 실측 질의 1:1 순서 기반 매핑 개선 (`reportGenerator.ts`, `WebVerificationModal.tsx`)**:
   - `answers` 테이블의 AI 공통 질문(긴 자연어)과 `web_verification_answers`의 네이버 전용 질의어(단축 키워드) 간의 1:1 순서(Index) 및 `naver_queries` 다중 매핑 체계 구축.
   - 상단 점수와 하단 질문 리스트 간의 불일치(점수는 반영되었으나 목록이 '미노출'로 표기되던 현상) 해결.
   - `web_verification_answers` 및 `answers`의 조회/정렬 순서(`id ASC`)를 일관성 있게 보장.
-- **OpenAI 실시간 웹 검색 도구(`web_search`) 및 모델 최적화 (`providers.ts`)**:
+- **OpenAI 실시간 웹 검색 도구(`web_search`) 및 정식 모델 최적화 (`providers.ts`)**:
   - 지원 종료(Deprecated)된 `gpt-4o-search-preview` 모델을 정식 플래그십 모델인 **`gpt-4o`**로 교체.
   - OpenAI 공식 실시간 웹 검색 도구(`tools: [{ type: 'web_search' }]`)를 API 페이로드에 탑재하여 실시간 검색 기능 활성화.
   - 기존 5대 핵심 환각 방지 시스템 프롬프트 100% 유지.
   - 사실 기반 일관성 유지 및 환각(Hallucination) 억제를 위해 저온도 옵션(`temperature: 0.2`) 적용.
-
-## [v1.0.9] - 2026-08-19
-
-### ✨ 신규 기능 추가 및 개선 (New Features & Improvements)
-- **OpenAI 실시간 웹 검색 모델 업그레이드 및 환각 방지 시스템 프롬프트 적용 (`providers.ts`)**:
-  - `callOpenAI` 엔진을 기존 학습 데이터 기반 `gpt-4o`에서 실시간 웹 검색 기능이 내장된 `gpt-4o-search-preview` 모델로 전면 교체하여 존재하지 않는 가짜 병원 추천(Hallucination) 원천 방지.
-  - 검색 검증 기반의 5대 핵심 시스템 프롬프트 규칙 적용:
-    1. 실제 웹 검색 결과에 존재하는 병원만 출력.
-    2. 미확인 정보(병원명, 주소, 진료시간 등)의 임의 추론/생성 절대 금지.
-    3. 동일 출처 내 병원명과 주소 동시 확인 시에만 출력.
-    4. 미확인 항목은 반드시 "확인되지 않음"으로 명시.
-    5. 실제 검색 결과 URL만 출처로 사용.
-  - `gpt-4o-search-preview` 모델과의 파라미터 비호환 에러(`temperature` 지원 불가 400 에러)를 해결하기 위해 `temperature` 옵션 제거.
-  - API 호출 전/후 요청 정보(`[OPENAI REQUEST]` - 프롬프트 길이 및 프리뷰) 및 토큰 사용량(`[OPENAI USAGE]` - prompt/completion/total 토큰) 실시간 콘솔 로깅 탑재.
 - **브랜드 로고 아이콘 반영 (`Header.tsx`, `LoginPage.tsx`)**:
   - 상단 내비게이션 바 및 로그인 페이지의 브랜드 로고를 기존 텍스트 형태(`lCA`)에서 `public/logo.ico` 이미지로 전면 교체.
 - **버전 동기화 및 컨설팅 가이드 문서 구축 (`package.json`, `OpenAI 검색률 관련 컨설팅 제안.md`)**:
