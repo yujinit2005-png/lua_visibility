@@ -61,7 +61,10 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
 
-# 2. 크롤링 대상 기본 URL
+# 2. 크롤링 대상 기본 URL 및 로그인 URL
+USER_DATA_DIR = os.path.join(os.environ.get('TARGET_DIR', 'C:/lua_crawler'), 'user_data')
+os.makedirs(USER_DATA_DIR, exist_ok=True)
+
 PLATFORM_URL_TEMPLATES = {
     "chatgpt": "https://chatgpt.com/?q={query}",
     "gemini": "https://gemini.google.com/app",
@@ -72,6 +75,15 @@ PLATFORM_URL_TEMPLATES = {
     "claude": "https://claude.ai/new",
 }
 
+PLATFORM_LOGIN_URLS = {
+    "chatgpt": "https://chatgpt.com/auth/login",
+    "gemini": "https://gemini.google.com/app",
+    "google gemini": "https://gemini.google.com/app",
+    "perplexity": "https://www.perplexity.ai/",
+    "claude": "https://claude.ai/login",
+    "naver": "https://nid.naver.com/nidlogin.login",
+}
+
 # 활성화된 브라우저 및 취소 플래그 관리
 active_browsers = set()
 stop_requested = False
@@ -80,6 +92,59 @@ window_offset_counter = 0
 @app.route('/api/health', methods=['GET', 'OPTIONS'])
 def health_check():
     return jsonify({"status": "ok", "message": "LUVIS Local Crawler Server is running", "time": time.time()})
+
+@app.route('/api/open_login', methods=['POST', 'OPTIONS'])
+def open_login_window():
+    global window_offset_counter, active_browsers
+    if request.method == 'OPTIONS':
+        return '', 204
+        
+    data = request.json or {}
+    platform = (data.get('platform') or 'perplexity').lower()
+    login_url = PLATFORM_LOGIN_URLS.get(platform, "https://www.perplexity.ai/")
+    
+    print(f"\n[LUA AI] 🔑 사전 로그인 창 열기: {platform} -> {login_url}")
+    
+    try:
+        # 백그라운드 스레드에서 브라우저 창 띄우기 (블로킹 방지)
+        import threading
+        def launch_login_browser():
+            try:
+                with sync_playwright() as p:
+                    base_x = 700
+                    base_y = 100
+                    context = p.chromium.launch_persistent_context(
+                        user_data_dir=USER_DATA_DIR,
+                        headless=False,
+                        viewport={"width": 1100, "height": 850},
+                        args=[
+                            f"--window-position={base_x},{base_y}",
+                            "--window-size=1100,850"
+                        ]
+                    )
+                    page = context.pages[0] if context.pages else context.new_page()
+                    page.goto(login_url)
+                    print(f"[LUA AI] 🔑 {platform} 로그인 창이 열렸습니다. 로그인 후 창을 닫아주세요.")
+                    # 사용자가 창을 닫을 때까지 대기
+                    try:
+                        page.wait_for_event("close", timeout=600000)
+                    except Exception:
+                        pass
+                    context.close()
+            except Exception as ex:
+                print(f"[LUA AI] 사전 로그인 창 실행 오류: {ex}")
+                
+        t = threading.Thread(target=launch_login_browser, daemon=True)
+        t.start()
+        
+        return jsonify({
+            "success": True,
+            "message": f"[{platform.upper()}] 사전 로그인 브라우저 창을 띄웠습니다. 로그인 후 창을 닫으시면 세션이 영구 보존됩니다.",
+            "url": login_url
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/close_all', methods=['POST', 'GET', 'OPTIONS'])
 def close_all_browsers():
@@ -262,7 +327,7 @@ def verify_platform():
     
     print(f"\n[LUA AI] 크롤링 시작: {platform} - {query}")
     
-    browser = None
+    context = None
     try:
         with sync_playwright() as p:
             base_x = 900
@@ -274,20 +339,24 @@ def verify_platform():
             pos_y = base_y + (offset * step)
             window_offset_counter += 1
 
-            browser = p.chromium.launch(headless=False, args=[
-                f"--window-position={pos_x},{pos_y}", 
-                "--window-size=1000,800"
-            ])
-            active_browsers.add(browser)
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=USER_DATA_DIR,
+                headless=False,
+                viewport={"width": 1000, "height": 800},
+                args=[
+                    f"--window-position={pos_x},{pos_y}", 
+                    "--window-size=1000,800"
+                ]
+            )
+            active_browsers.add(context)
             
-            context = browser.new_context(viewport={"width": 1000, "height": 800})
-            page = context.new_page()
+            page = context.pages[0] if context.pages else context.new_page()
             page.set_default_timeout(25000)
             
             page.goto(url, wait_until="domcontentloaded", timeout=25000)
             
             if stop_requested:
-                if browser: browser.close()
+                if context: context.close()
                 return jsonify({"error": "Stopped by user", "raw_text": ""}), 400
             
             # Gemini / Claude 질문 주입
@@ -337,15 +406,17 @@ def verify_platform():
                 extracted_text = last_text if last_text else extract_clean_ai_response(page, plat_key)
             
             print(f"[LUA AI] 크롤링 완료 (길이: {len(extracted_text)})")
-            if browser in active_browsers:
-                active_browsers.remove(browser)
-            browser.close()
+            if context in active_browsers:
+                active_browsers.remove(context)
+            context.close()
             
             return jsonify({"success": True, "raw_text": extracted_text})
             
     except Exception as e:
-        if browser and browser in active_browsers:
-            try: active_browsers.remove(browser)
+        if context and context in active_browsers:
+            try: active_browsers.remove(context)
+            except Exception: pass
+            try: context.close()
             except Exception: pass
         traceback.print_exc()
         return jsonify({"error": str(e), "raw_text": ""}), 500

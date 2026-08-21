@@ -1,6 +1,10 @@
 ## [v1.0.9] - 2026-08-21
 
 ### 🛠️ 버그 수정 및 최적화 (Bug Fixes & Improvements)
+- **웹 실측 AI 사전 로그인(세션 저장형 브라우저) 기능 복원 (`WebVerificationModal.tsx`, `api_server.py`)**:
+  - '전체 질문 순차 자동 실측' 버튼 좌측에 **`🔑 AI 사전 로그인`** 드롭다운 버튼 배치 (Perplexity, ChatGPT, Gemini, Claude, Naver).
+  - Perplexity 등 비로그인 사용자 가입/로그인 요구("가입한 뒤 요청을 다시 보내주세요") 발생 시, 사전 로그인 브라우저 창을 띄워 사용자 세션을 `user_data` 디렉토리에 영구 보존.
+  - 로컬 크롤러 서버에 `/api/open_login` 엔드포인트를 신설하고, 크롤링 엔진(`verify_platform`)에 Playwright 영구 세션(`launch_persistent_context`)을 적용하여 로그인된 상태로 자동 실측이 실행되도록 개선.
 - **네이버 로컬 가시성(Naver Dual) 리포트 및 웹 실측 질의 1:1 순서 기반 매핑 개선 (`reportGenerator.ts`, `WebVerificationModal.tsx`)**:
   - `answers` 테이블의 AI 공통 질문(긴 자연어)과 `web_verification_answers`의 네이버 전용 질의어(단축 키워드) 간의 1:1 순서(Index) 및 `naver_queries` 다중 매핑 체계 구축.
   - 상단 점수와 하단 질문 리스트 간의 불일치(점수는 반영되었으나 목록이 '미노출'로 표기되던 현상) 해결.

@@ -141,6 +141,65 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
   const [showCrawlerModal, setShowCrawlerModal] = useState<boolean>(false);
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
 
+  // 🔑 사전 로그인 드롭다운 메뉴 상태 및 핸들러
+  const [showPreLoginMenu, setShowPreLoginMenu] = useState<boolean>(false);
+  const preLoginMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (preLoginMenuRef.current && !preLoginMenuRef.current.contains(event.target as Node)) {
+        setShowPreLoginMenu(false);
+      }
+    };
+    if (showPreLoginMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showPreLoginMenu]);
+
+  const handleOpenPreLogin = async (platformKey: string) => {
+    setShowPreLoginMenu(false);
+    const targetUrl = crawlerApiUrl.replace(/\/+$/, '');
+    
+    const fallbackUrls: Record<string, string> = {
+      chatgpt: 'https://chatgpt.com/auth/login',
+      gemini: 'https://gemini.google.com/app',
+      perplexity: 'https://www.perplexity.ai/',
+      claude: 'https://claude.ai/login',
+      naver: 'https://nid.naver.com/nidlogin.login'
+    };
+
+    if (crawlerStatus === 'connected') {
+      try {
+        const res = await fetch(`${targetUrl}/api/open_login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform: platformKey })
+        });
+        if (res.ok) {
+          alert(
+            `🔑 [${platformKey.toUpperCase()} 사전 로그인 창 실행]\n\n` +
+            `크롤러 전용 브라우저 창이 열렸습니다.\n` +
+            `해당 창에서 로그인 후 창을 닫으시면 세션이 영구 보존되어, 이후 자동 실측 시 로그인 상태로 원활하게 동작합니다.`
+          );
+          return;
+        }
+      } catch (e) {
+        console.warn('크롤러 사전 로그인 호출 실패, 기본 브라우저로 엽니다.', e);
+      }
+    }
+
+    const fbUrl = fallbackUrls[platformKey.toLowerCase()] || 'https://www.perplexity.ai/';
+    window.open(fbUrl, '_blank', 'noopener,noreferrer');
+    alert(
+      `🔑 [${platformKey.toUpperCase()} 사전 로그인]\n\n` +
+      `웹 브라우저에서 로그인 페이지를 열었습니다.\n` +
+      `로컬 크롤러가 실행 중일 때 사전 로그인을 수행하시면 크롤러 브라우저 세션에 자동으로 저장됩니다.`
+    );
+  };
+
   // 크롤러 헬스체크 함수
   const checkCrawlerHealth = useCallback(async (urlToCheck?: string) => {
     const targetUrl = (urlToCheck || crawlerApiUrl).replace(/\/+$/, '');
@@ -805,6 +864,90 @@ pause\r
           {/* Controls Bar 2 */}
           <div className="bg-white px-6 py-2 border-b border-gray-200 flex flex-wrap gap-2 text-xs items-center justify-between">
             <div className="flex items-center gap-2 flex-wrap">
+              
+              {/* 🔑 AI 사전 로그인 드롭다운 버튼 (전체 자동 실측 왼쪽) */}
+              <div className="relative inline-block" ref={preLoginMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowPreLoginMenu(!showPreLoginMenu)}
+                  className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-3.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition-colors active:scale-95"
+                  title="크롤러 자동 실측 전 각 AI 서비스에 미리 로그인하여 세션을 저장합니다."
+                >
+                  <span>🔑</span>
+                  <span>AI 사전 로그인</span>
+                  <span className="text-[10px] ml-0.5 opacity-80">{showPreLoginMenu ? '▲' : '▼'}</span>
+                </button>
+
+                {showPreLoginMenu && (
+                  <div className="absolute left-0 top-full mt-1.5 w-56 bg-white border border-gray-200 rounded-xl shadow-2xl py-1.5 z-50 flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="px-3 py-1.5 text-[10px] font-extrabold text-gray-500 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                      <span>사전 로그인 플랫폼 선택</span>
+                      <span className="text-[9px] text-amber-600 font-semibold">세션 자동 저장</span>
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPreLogin('perplexity')}
+                      className="px-3 py-2 text-left hover:bg-teal-50 flex items-center gap-2.5 text-xs font-semibold text-gray-700 hover:text-teal-800 transition-colors"
+                    >
+                      <span className="text-base">🔮</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-[#208B8B]">Perplexity 로그인</span>
+                        <span className="text-[10px] text-gray-400 font-normal">가입/로그인 요구 차단 우회</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPreLogin('chatgpt')}
+                      className="px-3 py-2 text-left hover:bg-emerald-50 flex items-center gap-2.5 text-xs font-semibold text-gray-700 hover:text-emerald-800 transition-colors"
+                    >
+                      <span className="text-base">🤖</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-[#10A37F]">ChatGPT 로그인</span>
+                        <span className="text-[10px] text-gray-400 font-normal">OpenAI 계정 세션 저장</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPreLogin('gemini')}
+                      className="px-3 py-2 text-left hover:bg-blue-50 flex items-center gap-2.5 text-xs font-semibold text-gray-700 hover:text-blue-800 transition-colors"
+                    >
+                      <span className="text-base">✨</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-[#1A73E8]">Google Gemini 로그인</span>
+                        <span className="text-[10px] text-gray-400 font-normal">구글 계정 연결 유지</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPreLogin('claude')}
+                      className="px-3 py-2 text-left hover:bg-amber-50 flex items-center gap-2.5 text-xs font-semibold text-gray-700 hover:text-amber-800 transition-colors"
+                    >
+                      <span className="text-base">🧠</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-[#D97706]">Claude 로그인</span>
+                        <span className="text-[10px] text-gray-400 font-normal">Anthropic 계정 연결</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPreLogin('naver')}
+                      className="px-3 py-2 text-left hover:bg-green-50 flex items-center gap-2.5 text-xs font-semibold text-gray-700 hover:text-green-800 transition-colors border-t border-gray-100"
+                    >
+                      <span className="text-base">🇳</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-[#03C75A]">네이버(Naver) 로그인</span>
+                        <span className="text-[10px] text-gray-400 font-normal">네이버 로그인 세션 유지</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={handleAutoCrawl}
                 disabled={isAutoCrawling}
