@@ -343,13 +343,30 @@ export const generateAndUploadReport = async (
     return;
   }
 
-  const { data: hospConfig } = await supabase
+  let hospConfigQuery = supabase
     .from('hospital_config_versions')
     .select('aliases, competitors, queries, naver_queries')
-    .eq('hospital_code', hospitalCode)
-    .order('version', { ascending: false })
+    .eq('hospital_code', hospitalCode);
+
+  if (run?.version) {
+    hospConfigQuery = hospConfigQuery.eq('version', run.version);
+  }
+
+  let { data: hospConfig } = await hospConfigQuery
+    .order('id', { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (!hospConfig) {
+    const { data: latestConfig } = await supabase
+      .from('hospital_config_versions')
+      .select('aliases, competitors, queries, naver_queries')
+      .eq('hospital_code', hospitalCode)
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    hospConfig = latestConfig;
+  }
 
   const { data: auditRecord } = await supabase
     .from('trust_signal_audits')
@@ -993,6 +1010,18 @@ export const generateAndUploadReport = async (
        `;
     };
 
+    const getFullAiQuery = (a: any, idx?: number) => {
+      // 1순위: queriesList에서 인덱스로 가져오기 (AI 공통 긴 질문 문장)
+      if (idx !== undefined && idx >= 0 && idx < queriesList.length && queriesList[idx]) {
+        return queriesList[idx];
+      }
+      // 2순위: aiAnsList의 해당 인덱스 query
+      if (idx !== undefined && idx >= 0 && idx < aiAnsList.length && aiAnsList[idx]?.query) {
+        return aiAnsList[idx].query;
+      }
+      return a.query;
+    };
+
     const getContentKeywordHtml = (a: any, idx: number) => {
        // 1순위: 직접 일치
        let wa = naverWebAnswers.find(w => w.query === a.query);
@@ -1020,7 +1049,7 @@ export const generateAndUploadReport = async (
        const statusText = isOurs ? '노출' : '미노출';
        const w = isOurs ? 80 : 15;
        const barColor = isOurs ? 'linear-gradient(90deg, #E45928, #17436A)' : '#e2e8f0';
-       const dispQ = a.query;
+       const dispQ = getFullAiQuery(a, idx);
        return `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px;">
           <div style="flex:1; color:#475569; line-height:1.3; word-break:keep-all; min-width:110px;" title="${a.query}">${dispQ}</div>
