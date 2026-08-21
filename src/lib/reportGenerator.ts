@@ -1009,7 +1009,7 @@ export const generateAndUploadReport = async (
     const firstChunk = naverAnsList.slice(0, hasMultipleNaverPages ? 16 : naverAnsList.length);
     const secondChunk = hasMultipleNaverPages ? naverAnsList.slice(16) : [];
     
-    const topKeywords = firstChunk.map((a, idx) => getTopKeywordHtml(a)).join('');
+    const topKeywords = firstChunk.map(a => getTopKeywordHtml(a)).join('');
     const contentKeywords = firstChunk.map((a, idx) => getContentKeywordHtml(a, idx)).join('');
 
     let compTableRows = '';
