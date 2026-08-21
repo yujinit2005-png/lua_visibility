@@ -694,10 +694,10 @@ pause\r
     }
   };
 
-  // ── 전체 자동 실측 (7초 간격 병렬) ──────────────────────────────────────────────────
+  // ── 전체 자동 실측 (완전 순차적 1:1 실행) ──────────────────────────────────────────────────
   const handleAutoCrawl = async () => {
     if (filteredRows.length === 0) return alert('실측할 데이터가 없습니다.');
-    if (!window.confirm(`총 ${filteredRows.length}개의 질문을 자동 실측합니다.\n(각 브라우저 창이 7초 간격으로 순차적으로 띄워집니다.)\n진행하시겠습니까?`)) return;
+    if (!window.confirm(`총 ${filteredRows.length}개의 질문을 순차적으로 자동 실측합니다.\n(이전 질문의 브라우저가 닫힌 후 다음 질문이 순차적으로 실행됩니다.)\n진행하시겠습니까?`)) return;
 
     autoCrawlCancelledRef.current = false;
     setIsAutoCrawling(true);
@@ -722,21 +722,23 @@ pause\r
         }
         const row = filteredRows[i];
         
-        // 개별 실측 실행 (isSilent=true)
-        handleOpenViewer(row, true).catch((e) => {
-          console.warn('[LUA AI] 개별 실측 예외:', e);
-        });
+        // 개별 실측 실행 완료 및 브라우저 창 닫힘까지 완전 대기 (await)
+        try {
+          await handleOpenViewer(row, true);
+        } catch (e) {
+          console.warn(`[LUA AI] Q${row.question_id} 실측 중 오류 (다음 질문 계속 진행):`, e);
+        }
         
-        // 다음 창을 띄우기 전 7초 대기 (1초 단위로 취소 여부 체크)
+        // 브라우저 프로세스 및 세션 락이 안전하게 해제될 수 있도록 1.5초 대기
         if (i < filteredRows.length - 1) {
-          for (let s = 0; s < 7; s++) {
+          for (let s = 0; s < 2; s++) {
             if (autoCrawlCancelledRef.current || !isOpen) break;
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 800));
           }
         }
       }
       if (!autoCrawlCancelledRef.current && isOpen) {
-        alert('✅ 전체 질문 실측 명령 전송 완료!\n각 창에서 크롤링이 완료될 때까지 잠시만 기다려주세요.');
+        alert('✅ 전체 질문 순차 자동 실측이 성공적으로 완료되었습니다!');
       }
     } catch (e) {
       console.error(e);
