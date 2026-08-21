@@ -61,13 +61,16 @@
 # B. 구조화 데이터 (Schema.org) — 미달 원인과 개선 방안
 
 ### 1. 현황 진단 및 예상 영향
+
 사람은 홈페이지를 눈으로 읽어 병원임을 알 수 있지만, AI는 오직 코드로만 정보를 읽습니다. 현재 귀 병원의 홈페이지에는 AI가 인식할 수 있는 전용 규격 정보(JSON-LD)가 등재되어 있지 않습니다. 이로 인해 AI가 귀 병원의 전문 진료과, 의료진 규모, 기관 종류를 100% 확신하지 못하며, 정보 확신성이 낮은 병원은 AI 추천 리스트에서 우선적으로 배제되는 경향을 보입니다.
 
 ### 2. 구체적 미달 항목
+
 - **`MedicalClinic` / `Hospital` 스키마 미검출 (-14점)**: AI에게 "우리는 어떤 진료를 하는 무슨 병원이다"라고 명시하는 가장 핵심적인 의료기관 메타데이터가 없습니다.
 - **`FAQPage` / `AggregateRating` 스키마 부재 (-11점)**: AI가 환자의 질문에 답변할 때 즉시 인용할 수 있는 '자주 묻는 질문(FAQ)' 구조와 '환자 평가(리뷰/별점)' 데이터가 AI 규격으로 연결되어 있지 않습니다.
 
 ### 3. 개선 솔루션 (웹 에이전시 전달용 가이드)
+
 홈페이지의 `<head>` 태그 내에 AI가 읽을 수 있는 **JSON-LD(JavaScript Object Notation for Linked Data)** 형식의 스크립트를 삽입하는 단시간 작업으로 해결할 수 있습니다. 홈페이지 개발/유지보수 담당자에게 아래 가이드를 전달해 주시기 바랍니다.
 
 ---
@@ -76,6 +79,7 @@
 > 검색엔진 및 AI 크롤러(GPTBot, ClaudeBot 등)가 병원 정보를 명확히 파싱할 수 있도록, 홈페이지 공통 `<head>` 영역 또는 메인 페이지에 아래의 JSON-LD 구조화 데이터 삽입을 요청합니다.
 
 #### ① 병원 기본 규격 (`MedicalClinic` 스키마)
+
 병원의 이름, 주소, 연락처, 주요 진료과목을 명시합니다.
 
 ```html
@@ -101,6 +105,7 @@
 ```
 
 #### ② 질문형 답변 최적화 (`FAQPage` 스키마)
+
 환자들이 자주 묻는 대표 질문 2~3가지를 텍스트 기반으로 삽입하여 AI가 답변의 출처로 활용하도록 유도합니다.
 
 ```html
@@ -128,6 +133,7 @@
 ```
 
 #### ③ 환자 평가/리뷰 (`AggregateRating` 스키마)
+
 영업용 페이지나 주요 치료 랜딩 페이지에 별점 정보를 제공하여 신뢰도를 높입니다.
 
 ```html
@@ -162,52 +168,6 @@
 | **② FAQ / 질의응답** | **6점** | `자주 묻는`, `faq`, `q&a`, `질문과 답`, `궁금`, `온라인상담`, `고객센터` | `faq`, `qna`, `question`, `help`, `board`, `bbs`, `consult`, `counsel` | • 질문/상담 관련 텍스트 스니펫<br/>• 게시판/고객센터 링크 URL |
 | **③ 블로그 / 건강칼럼** | **6점** | `블로그`, `칼럼`, `건강정보`, `치료사례`, `blog`, `column`, `blog.naver` | `blog.naver.com`, `blog`, `column`, `news` | • 칼럼 제목/사례 텍스트 스니펫<br/>• 블로그/칼럼 게시판 하이퍼링크 URL |
 | **④ 유튜브 영상/채널** | **6점** | `유튜브`, `youtube.com`, `youtu.be`, `TV` | `youtube.com`, `youtu.be`, `youtube.com/embed/` (iframe 포함) | • 영상 설명/제목 스니펫<br/>• 실제 유튜브 채널/동영상 URL |
-
-#### 핵심 파싱 알고리즘
-
-```typescript
-// 1. 키워드 매칭 주변 140자 문맥 스니펫 발췌 (img alt 태그 내용 포함)
-function extractSnippet(cleanText: string, keywords: string[], maxLen = 140): string {
-  // 본문 텍스트 외에 <img> 태그의 alt 속성값도 cleanText에 포함하여 검사합니다.
-  const lower = cleanText.toLowerCase();
-  for (const kw of keywords) {
-    const idx = lower.indexOf(kw.toLowerCase());
-    if (idx !== -1) {
-      const start = Math.max(0, idx - 25);
-      const end = Math.min(cleanText.length, idx + kw.length + maxLen);
-      let snippet = cleanText.substring(start, end).replace(/\s+/g, ' ').trim();
-      if (start > 0) snippet = '...' + snippet;
-      if (end < cleanText.length) snippet = snippet + '...';
-      return snippet;
-    }
-  }
-  return '';
-}
-
-// 2. 해당 섹션의 실제 URL 링크 추출 (최대 5개, <a> href 및 <iframe> src 지원)
-function extractHrefLinks(html: string, patterns: string[]): string[] {
-  const links = new Set<string>();
-  // <a> 태그의 href 추출
-  const aRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
-  let match;
-  while ((match = aRegex.exec(html)) !== null) {
-    const href = match[1].trim();
-    if (!href || href.startsWith('#') || href.startsWith('javascript:')) continue;
-    if (patterns.some(p => href.toLowerCase().includes(p.toLowerCase()))) {
-      links.add(href);
-    }
-  }
-  // <iframe> 태그의 src 추출 (유튜브 등)
-  const iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/gi;
-  while ((match = iframeRegex.exec(html)) !== null) {
-    const src = match[1].trim();
-    if (patterns.some(p => src.toLowerCase().includes(p.toLowerCase()))) {
-      links.add(src);
-    }
-  }
-  return Array.from(links).slice(0, 5);
-}
-```
 
 ---
 

@@ -49,13 +49,10 @@ export interface ProviderResult {
 // };
 
 // ============================================================
-// [v1.0.9] callOpenAI — gpt-4o-search-preview + 환각 억제 프롬프트 (A+B 플랜)
-// 변경사항:
-//   A. 모델: gpt-4o → gpt-4o-search-preview (실시간 웹 검색 내장)
-//   B. 프롬프트: 핵심 환각 방지 규칙만 간결하게 작성
+// [v1.0.10] callOpenAI — gpt-4o + 환각 억제 프롬프트 + 저온도(temperature: 0.2)
 // ============================================================
 export const callOpenAI = async (prompt: string, config: ProviderConfig): Promise<ProviderResult> => {
-  const modelName = 'gpt-4o-search-preview';
+  const modelName = 'gpt-4o';
   const urls = [
     '/api-openai/v1/chat/completions',
     'https://api.openai.com/v1/chat/completions'
@@ -91,9 +88,13 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
         },
         body: JSON.stringify({
           model: modelName,
+          temperature: 0.2, // 사실 기반 일관성 및 환각(Hallucination) 억제
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt }
+          ],
+          tools: [
+            { type: 'web_search' } // OpenAI 공식 실시간 웹 검색 도구 활성화
           ]
         })
       });

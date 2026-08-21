@@ -1,3 +1,16 @@
+## [v1.0.10] - 2026-08-21
+
+### 🛠️ 버그 수정 및 안정화 (Bug Fixes & Stabilization)
+- **네이버 로컬 가시성(Naver Dual) 리포트 및 웹 실측 질의 1:1 순서 기반 매핑 개선 (`reportGenerator.ts`, `WebVerificationModal.tsx`)**:
+  - `answers` 테이블의 AI 공통 질문(긴 자연어)과 `web_verification_answers`의 네이버 전용 질의어(단축 키워드) 간의 1:1 순서(Index) 및 `naver_queries` 다중 매핑 체계 구축.
+  - 상단 점수와 하단 질문 리스트 간의 불일치(점수는 반영되었으나 목록이 '미노출'로 표기되던 현상) 해결.
+  - `web_verification_answers` 및 `answers`의 조회/정렬 순서(`id ASC`)를 일관성 있게 보장.
+- **OpenAI 실시간 웹 검색 도구(`web_search`) 및 모델 최적화 (`providers.ts`)**:
+  - 지원 종료(Deprecated)된 `gpt-4o-search-preview` 모델을 정식 플래그십 모델인 **`gpt-4o`**로 교체.
+  - OpenAI 공식 실시간 웹 검색 도구(`tools: [{ type: 'web_search' }]`)를 API 페이로드에 탑재하여 실시간 검색 기능 활성화.
+  - 기존 5대 핵심 환각 방지 시스템 프롬프트 100% 유지.
+  - 사실 기반 일관성 유지 및 환각(Hallucination) 억제를 위해 저온도 옵션(`temperature: 0.2`) 적용.
+
 ## [v1.0.9] - 2026-08-19
 
 ### ✨ 신규 기능 추가 및 개선 (New Features & Improvements)

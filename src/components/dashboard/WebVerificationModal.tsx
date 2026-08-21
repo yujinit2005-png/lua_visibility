@@ -417,9 +417,12 @@ pause\r
           const { data: savedAns } = await supabase
             .from('web_verification_answers')
             .select('*')
-            .eq('verification_id', verif.id);
-          (savedAns || []).forEach(sa => {
-            savedAnswersMap.set(`${verif.platform}::${sa.query}`, sa);
+            .eq('verification_id', verif.id)
+            .order('id', { ascending: true });
+          (savedAns || []).forEach((sa, saIdx) => {
+            if (sa.query) savedAnswersMap.set(`${verif.platform}::${sa.query}`, sa);
+            if (sa.question_id) savedAnswersMap.set(`${verif.platform}::${sa.question_id}`, sa);
+            savedAnswersMap.set(`${verif.platform}::idx_${saIdx}`, sa);
           });
         }
       }
@@ -441,7 +444,8 @@ pause\r
         if (seenKeys.has(dedupKey)) return;
         seenKeys.add(dedupKey);
 
-        const savedRow = savedAnswersMap.get(dedupKey);
+        const qId = `Q${ans.question_id || idx + 1}`;
+        const savedRow = savedAnswersMap.get(dedupKey) || savedAnswersMap.get(`${platKey}::${qId}`);
         const rawAnswerText = ans.answer_text || '';
 
         // aliases 기반 언급 판정 (answers.matched_alias 또는 텍스트 검색)

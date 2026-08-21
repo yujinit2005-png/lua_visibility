@@ -403,7 +403,7 @@ export const generateAndUploadReport = async (
     '전문병원', '일반병원', '치과의원', '피부과의원', '상급종합병원', '클리닉', '센터', '진료소', '보건소'
   ]);
 
-  const allAnsList = answers || [];
+  const allAnsList = (answers || []).sort((a: any, b: any) => (a.id || 0) - (b.id || 0));
   const aiAnsList = allAnsList.filter(a => a.provider !== 'naver');
   const naverAnsList = allAnsList.filter(a => a.provider === 'naver');
 
@@ -412,8 +412,9 @@ export const generateAndUploadReport = async (
   
   const { data: allWebVers } = await supabase
     .from('web_verifications')
-    .select('id, platform')
-    .eq('run_id', runId);
+    .select('id, platform, hospital_code, run_id')
+    .eq('run_id', runId)
+    .order('id', { ascending: true });
 
   let allWebAnswers: any[] = [];
   if (allWebVers && allWebVers.length > 0) {
@@ -421,7 +422,8 @@ export const generateAndUploadReport = async (
     const { data: wa } = await supabase
       .from('web_verification_answers')
       .select('*')
-      .in('verification_id', vIds);
+      .in('verification_id', vIds)
+      .order('id', { ascending: true });
     if (wa && wa.length > 0) {
       allWebAnswers = wa;
     }
@@ -429,7 +431,9 @@ export const generateAndUploadReport = async (
 
   const naverWebVers = allWebVers?.filter(v => v.platform?.toLowerCase() === 'naver');
   const naverVIds = naverWebVers?.map(nv => nv.id) || [];
-  const naverWebAnswers: any[] = allWebAnswers.filter(wa => naverVIds.includes(wa.verification_id));
+  const naverWebAnswers: any[] = allWebAnswers
+    .filter(wa => naverVIds.includes(wa.verification_id))
+    .sort((a: any, b: any) => (a.id || 0) - (b.id || 0));
   const hasNaverCrawling = naverWebAnswers.length > 0;
 
   const aiWebVers = allWebVers?.filter(v => v.platform?.toLowerCase() !== 'naver') || [];
@@ -963,15 +967,37 @@ export const generateAndUploadReport = async (
        `;
     };
 
-    const getContentKeywordHtml = (a: any) => {
-       const wa = naverWebAnswers.find(w => w.query === a.query);
+    const getContentKeywordHtml = (a: any, idx: number) => {
+       // 1순위: 직접 일치
+       let wa = naverWebAnswers.find(w => w.query === a.query);
+
+       // 2순위: queriesList / naverQueriesList 인덱스 기준 매칭
+       if (!wa) {
+         const qIdx = queriesList.findIndex(q => q.trim() === a.query?.trim());
+         if (qIdx >= 0) {
+           const targetNaverQ = naverQueriesList[qIdx];
+           if (targetNaverQ) {
+             wa = naverWebAnswers.find(w => w.query === targetNaverQ || w.query?.trim() === targetNaverQ.trim());
+           }
+           if (!wa && naverWebAnswers[qIdx]) {
+             wa = naverWebAnswers[qIdx];
+           }
+         }
+       }
+
+       // 3순위: 1:1 순서(Index) 기반 fallback 매칭
+       if (!wa && idx !== undefined && naverWebAnswers[idx]) {
+         wa = naverWebAnswers[idx];
+       }
+
        const isOurs = wa ? (wa.web_mentioned || wa.is_our_hospital) : false;
        const statusText = isOurs ? '노출' : '미노출';
        const w = isOurs ? 80 : 15;
        const barColor = isOurs ? 'linear-gradient(90deg, #E45928, #17436A)' : '#e2e8f0';
+       const dispQ = getShortQuery(a.query);
        return `
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px;">
-          <div style="flex:1; color:#475569; line-height:1.3; word-break:keep-all; min-width:110px;" title="${a.query}">${a.query}</div>
+          <div style="flex:1; color:#475569; line-height:1.3; word-break:keep-all; min-width:110px;" title="${a.query}">${dispQ}</div>
           <div style="flex:1; height:12px; background:#f1f5f9; border-radius:6px; overflow:hidden;">
             <div style="width:${w}%; height:100%; background:${barColor};"></div>
           </div>
@@ -983,8 +1009,8 @@ export const generateAndUploadReport = async (
     const firstChunk = naverAnsList.slice(0, hasMultipleNaverPages ? 16 : naverAnsList.length);
     const secondChunk = hasMultipleNaverPages ? naverAnsList.slice(16) : [];
     
-    const topKeywords = firstChunk.map(a => getTopKeywordHtml(a)).join('');
-    const contentKeywords = firstChunk.map(a => getContentKeywordHtml(a)).join('');
+    const topKeywords = firstChunk.map((a, idx) => getTopKeywordHtml(a)).join('');
+    const contentKeywords = firstChunk.map((a, idx) => getContentKeywordHtml(a, idx)).join('');
 
     let compTableRows = '';
     let compPlaceBars = '';
@@ -1161,7 +1187,7 @@ export const generateAndUploadReport = async (
 
     if (hasMultipleNaverPages) {
       const topKeywords2 = secondChunk.length > 0 ? secondChunk.map(a => getTopKeywordHtml(a)).join('') : '';
-      const contentKeywords2 = secondChunk.length > 0 ? secondChunk.map(a => getContentKeywordHtml(a)).join('') : '';
+      const contentKeywords2 = secondChunk.length > 0 ? secondChunk.map((a, idx) => getContentKeywordHtml(a, idx + firstChunk.length)).join('') : '';
       
       page5 += `
 <div class="page">

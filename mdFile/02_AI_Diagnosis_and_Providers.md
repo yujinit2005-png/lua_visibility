@@ -1,6 +1,7 @@
 # 02. AI 진단 엔진 및 프로바이더 연동 (AI Diagnosis & Providers)
 
 ## 📌 개요
+
 루비스 시스템은 주요 대형 언어 모델(LLM)과 검색 엔진 API를 통합하여, 질문별로 질의를 전송하고 수신된 응답 텍스트를 정밀 분석합니다.
 
 ---
@@ -8,8 +9,8 @@
 ## 🤖 지원 AI 프로바이더 목록
 
 | 프로바이더 | 주력 모델 | 특징 및 연결 방식 |
-|---|---|---|
-| **OpenAI** | `gpt-4o-search-preview` | 실시간 웹 검색 내장 모델, 환각 방지 시스템 프롬프트 및 Vite 역방향 프록시(`/api-openai`) 경유 |
+| --- | --- | --- |
+| **OpenAI** | `gpt-4o` | 정식 플래그십 모델, 환각 방지 시스템 프롬프트 및 `temperature: 0.2` 저온도 설정, Vite 역방향 프록시(`/api-openai`) 경유 |
 | **Google Gemini** | `gemini-2.0-flash` | 503 과부하 시 대체 모델(`gemini-1.5-flash`, `gemini-1.5-pro`) 자동 Fallback |
 | **Perplexity** | `sonar`, `sonar-pro` | 실시간 웹 검색 기반 답변 및 인용 출처(Citations) 수집 |
 | **Anthropic** | `claude-3-5-sonnet` | Web Search Tool 연동 실시간 검색 및 엄격 추천 신뢰도 지표화 |
