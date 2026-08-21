@@ -15,6 +15,16 @@
 
 ---
 
+## 🗺️ 네이버 로컬 가시성 (Naver Dual) 5페이지 1:1 회차 매핑 아키텍처
+
+- **회차별 설정 버전 1:1 매핑 (`run.version`)**:
+  - 리포트 생성 시 단순 최신 버전이 아닌 해당 진단 회차(`runId`) 생성 당시의 `run.version`과 일치하는 `hospital_config_versions` 레코드를 우선 조회하여 데이터 정합성 보장.
+- **좌우 컬럼 렌더링 명확한 이원화 (`reportGenerator.ts`)**:
+  - **좌측 (A. 네이버 플레이스 점유율)**: `getShortQuery(a.query, idx)`를 통해 **네이버 전용 단축 검색어(`naver_queries[idx]`)**를 1순위로 추출 및 바인딩 (예: `청주 허리디스크 한방병원`).
+  - **우측 (B. 네이버 콘텐츠 바이럴 점유율)**: `getFullAiQuery(a, idx)`를 통해 DB 저장 형태와 무관하게 **AI 공통 질문 전체 문장(`queries[idx]`)**을 정확히 복원하여 렌더링 (예: `청주에서 허리디스크 치료 잘하는 한방병원 어디야?`).
+
+---
+
 ## 📁 Supabase Storage 파일명 표준화 및 S3 Key 규칙
 
 ### 1. 파일명 생성 규칙

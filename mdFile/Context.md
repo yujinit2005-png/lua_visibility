@@ -4,7 +4,7 @@
 
 ## 1. 개요 (Overview)
 
-**LUVIS (LUA AI Visibility Web Engine)** 은 대형 언어 모델(ChatGPT `gpt-4o`, Google Gemini `gemini-2.0-flash`, Perplexity `sonar-pro`, Claude `claude-3-5-sonnet`, Naver API Hub) 기반 서비스에서 특정 병원이 주요 검색/질의에 얼마나 잘 언급되고 추천되는지를 측정·분석하고, 영업 및 분석용 진단 리포트(PDF/Markdown/HTML)를 생성 및 저장하는 **웹 기반 AI 가시성 진단 솔루션(v1.0.9)**입니다.
+**LUVIS (LUA AI Visibility Web Engine)** 은 대형 언어 모델(ChatGPT `gpt-5.6-luna`, Google Gemini `gemini-2.0-flash`, Perplexity `sonar-pro`, Claude `claude-3-5-sonnet`, Naver API Hub) 및 실물 브라우저 크롤러(Playwright 기반 `api_server.py`)를 통해 특정 병원이 주요 검색/질의에 얼마나 잘 언급되고 추천되는지를 측정·분석하고, 영업 및 분석용 진단 리포트(PDF/Markdown/HTML)를 생성 및 저장하는 **웹 기반 AI 가시성 진단 솔루션(v1.1.0)**입니다.
 
 ---
 
@@ -28,7 +28,7 @@ lua_visibility_Web/
 │   │   │   ├── RunSelectionModal.tsx       # 과거 측정 회차(Run ID) 선택 모달
 │   │   │   ├── StorageFileManagerModal.tsx # Supabase Storage 파일 보관함 모달
 │   │   │   ├── TrendAnalysisModal.tsx      # 다중 회차 가시성 추이 분석 대시보드 모달
-│   │   │   └── WebVerificationModal.tsx    # 웹 UI 실측 & 교차 비교 분석 모달
+│   │   │   └── WebVerificationModal.tsx    # 웹 UI 실측 & 교차 비교 분석 모달 (1:1 순차 실행 및 봇 우회 사전 로그인 탑재)
 │   │   └── layout/
 │   │       └── Header.tsx                  # 브랜드 로고 및 상단 글로벌 내비게이션 바
 │   │
@@ -41,10 +41,13 @@ lua_visibility_Web/
 │   │
 │   ├── lib/
 │   │   ├── analyzer.ts                     # AI 가시성 측정, 성공률/언급률 분석 엔진
-│   │   ├── providers.ts                    # OpenAI (gpt-4o), Gemini, Perplexity, Naver, Claude API 클라이언트
-│   │   ├── reportGenerator.ts              # 9~10페이지 종합 진단 리포트 (Naver Dual 1:1 매핑 포함) 생성기
+│   │   ├── providers.ts                    # OpenAI (gpt-5.6-luna), Gemini, Perplexity, Naver, Claude API 클라이언트
+│   │   ├── reportGenerator.ts              # 9~10페이지 종합 진단 리포트 (Naver Dual 1:1 회차 매핑 포함) 생성기
 │   │   ├── trustSignal.ts                  # 신뢰 콘텐츠 4대 자산 크롤링 및 안티봇 Double-Fetch 엔진
 │   │   └── supabase.ts                     # Supabase JS 클라이언트 설정
+│   │
+│   ├── services/
+│   │   └── api_server.py                   # Python Playwright 백엔드 크롤링 서버 (Port 5000, 봇 우회 & 세션 보존)
 │   │
 │   ├── pages/
 │   │   ├── Dashboard.tsx                   # 메인 대시보드 레이아웃 페이지
@@ -53,6 +56,7 @@ lua_visibility_Web/
 │   ├── App.tsx                             # 최상위 라우팅 및 Context 공급자
 │   ├── index.css                           # 전역 Tailwind CSS 스타일 및 가독성 설정
 │   ├── main.tsx                            # React 진입점
+│   ├── start_app.bat                       # 파이썬 크롤러 + Vite + 앱 단독창 원클릭 실행기
 │   └── vite.config.ts                      # 역방향 프록시 및 로컬 백엔드 크롤링 미들웨어(/api-proxy)
 │
 ├── supabase/
@@ -60,13 +64,13 @@ lua_visibility_Web/
 │       └── schema.sql                      # Supabase DDL, RLS 보안 정책 및 Storage 권한 설정
 │
 └── mdFile/
-    ├── Context.md                          # 프로젝트 맥락 및 기술 구조 명세서
+    ├── Context.md                          # 프로젝트 맥락 및 기술 구조 명세서 (현행화 완료)
     ├── README.md                           # 웹 프로젝트 사용 설명서
     ├── CHANGELOG.md                        # 일자별 마이그레이션 & 기능 변경 이력
     ├── 01_System_Architecture_and_Overview.md # 시스템 아키텍처 개요
     ├── 02_AI_Diagnosis_and_Providers.md    # AI 프로바이더 및 프록시 명세
     ├── 03_Naver_Local_Search_Hub.md        # 네이버 지역검색 허브 명세
-    ├── 04_Web_Verification_and_Comparison.md # 웹 UI 실측 및 교차비교
+    ├── 04_Web_Verification_and_Comparison.md # 웹 UI 실측 및 교차비교 (Playwright 봇 우회)
     ├── 05_Report_and_Storage_Management.md # 리포트 생성 및 스토리지 명세
     ├── 06_Multi_Run_Trend_Analysis_Dashboard.md # 추이 분석 대시보드
     ├── 07_Database_Schema_and_Security.md  # DB 스키마 및 RLS
@@ -84,7 +88,7 @@ lua_visibility_Web/
 flowchart TD
     A[사용자 대시보드 LeftPanel] --> B[병원 & 버전 선택: useHospitals.ts]
     B --> C[AI 진단 시작: analyzer.ts / providers.ts]
-    C --> D[질문 세트 순차 호출 temp=0.2 / web_search]
+    C --> D[질문 세트 순차 호출: gpt-5.6-luna / 환각 방지 프롬프트]
     D --> E[Supabase DB 저장: runs & answers 테이블]
     E --> F[리포트 생성: reportGenerator.ts]
     F --> G[Supabase Storage 업로드: Report / Remake Report / Audit]
@@ -92,12 +96,17 @@ flowchart TD
 
 1. **설정 로드**: `useHospitals.ts`에서 Supabase DB로부터 등록된 병원 및 active 버전을 로드.
 2. **질문 세트 유연 파싱**: DB 저장 형태가 JSON 배열이든 줄바꿈 텍스트든 `parseQueries` 헬퍼로 유연하게 파싱.
-3. **OpenAI 환각 억제 호출**: `gpt-4o` 정식 모델에 `tools: [{ type: 'web_search' }]` 및 `temperature: 0.2` 저온도 설정과 5대 핵심 환각 방지 시스템 프롬프트를 적용하여 신뢰도 확보.
-4. **네이버 로컬 가시성(Naver Dual) 1:1 매핑**:
-   - `answers` 테이블(AI 자연어 질문셋)과 `web_verification_answers` 테이블(네이버 단축 검색어) 간 1:1 순서(Index) 기반 매핑 파이프라인 탑재.
-   - 상단 콘텐츠 바이럴 점유율과 하단 질문별 노출 목록 간의 완벽한 정합성 보장.
-5. **안티봇 우회 크롤링**: Cafe24 등 국내 호스팅사의 안티봇 보안을 돌파하기 위해 `trustSignal.ts` 내 **Double-Fetch (세션 쿠키 탈취 후 2차 재요청)** 및 Vite 로컬 백엔드 프록시(`/api-proxy`) 탑재.
-6. **Storage 분개 저장**:
-   - `Report/`: 영업용 PDF 생성 시 저장 (`001_청주필한방병원_진단.pdf`).
-   - `Remake Report/`: 진단 재실행 모달 리포트 생성 시 저장.
+3. **OpenAI 최신 추론 모델 탑재**: `gpt-5.6-luna` 모델 적용 및 엄격한 환각 억제 프롬프트(가짜 병원 생성 절대 금지, '병원' 질문 시에도 '신윤수내과의원' 등 1차/2차 의원급 의료기관 동등 추천) 탑재.
+4. **실물 브라우저 크롤러 및 Cloudflare 봇 우회 (`api_server.py`)**:
+   - 실물 Chrome 브라우저(`channel="chrome"`) + WebGPU 가속 플래그 탑재로 Cloudflare Turnstile 100% 정상 통과.
+   - 봇 차단 시 구글 계정 OAuth 연동 사전 로그인(`mode=google`) 지원.
+   - `WebVerificationModal.tsx`에서 1:1 순차 동기화(`await`)로 프로필 락 및 멀티탭 충돌 원천 차단.
+5. **네이버 로컬 가시성(Naver Dual) 리포트 1:1 정합성 보장 (`reportGenerator.ts`)**:
+   - `run.version`을 기준으로 정확한 설정 버전을 매핑.
+   - **좌측 (A. 플레이스 점유율)**: 항상 네이버 전용 단축 검색어(`naver_queries[idx]`) 출력.
+   - **우측 (B. 콘텐츠 바이럴 점유율)**: 항상 AI 공통 질문 전체 문장(`queries[idx]`) 출력.
+6. **안티봇 우회 크롤링**: Cafe24 등 국내 호스팅사의 안티봇 보안을 돌파하기 위해 `trustSignal.ts` 내 **Double-Fetch (세션 쿠키 탈취 후 2차 재요청)** 및 Vite 로컬 백엔드 프록시(`/api-proxy`) 탑재.
+7. **Storage 분개 저장**:
+   - `Report/`: 영업용 PDF 생성 시 저장 (`001_청주필한방병원_20260821_01.html / .pdf`).
+   - `Remake_Report/`: 진단 재실행 모달 리포트 생성 시 저장.
    - `Audit/`: 감사 데이터 JSON 저장.

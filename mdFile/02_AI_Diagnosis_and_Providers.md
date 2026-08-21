@@ -10,7 +10,7 @@
 
 | 프로바이더 | 주력 모델 | 특징 및 연결 방식 |
 | --- | --- | --- |
-| **OpenAI** | `gpt-4o` | 정식 플래그십 모델, 환각 방지 시스템 프롬프트 및 `temperature: 0.2` 저온도 설정, Vite 역방향 프록시(`/api-openai`) 경유 |
+| **OpenAI** | `gpt-5.6-luna` | 최신 고성능 모델, 가짜 병원 생성 방지 환각 억제 프롬프트 탑재, '병원' 질문 시에도 '신윤수내과의원' 등 1차/2차 의원급 의료기관 동등 추천, Vite 역방향 프록시(`/api-openai`) 경유 |
 | **Google Gemini** | `gemini-2.0-flash` | 503 과부하 시 대체 모델(`gemini-1.5-flash`, `gemini-1.5-pro`) 자동 Fallback |
 | **Perplexity** | `sonar`, `sonar-pro` | 실시간 웹 검색 기반 답변 및 인용 출처(Citations) 수집 |
 | **Anthropic** | `claude-3-5-sonnet` | Web Search Tool 연동 실시간 검색 및 엄격 추천 신뢰도 지표화 |
