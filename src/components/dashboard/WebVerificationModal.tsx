@@ -159,7 +159,7 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
     };
   }, [showPreLoginMenu]);
 
-  const handleOpenPreLogin = async (platformKey: string) => {
+  const handleOpenPreLogin = async (platformKey: string, mode: 'direct' | 'google' = 'direct') => {
     setShowPreLoginMenu(false);
     const targetUrl = crawlerApiUrl.replace(/\/+$/, '');
     
@@ -176,14 +176,19 @@ export const WebVerificationModal: React.FC<WebVerificationModalProps> = ({
         const res = await fetch(`${targetUrl}/api/open_login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform: platformKey })
+          body: JSON.stringify({ platform: platformKey, mode })
         });
         if (res.ok) {
-          alert(
-            `🔑 [${platformKey.toUpperCase()} 사전 로그인 창 실행]\n\n` +
-            `크롤러 전용 브라우저 창이 열렸습니다.\n` +
-            `해당 창에서 로그인 후 창을 닫으시면 세션이 영구 보존되어, 이후 자동 실측 시 로그인 상태로 원활하게 동작합니다.`
-          );
+          const msg = mode === 'google'
+            ? `🔑 [PERPLEXITY 구글 연동 로그인 창 실행]\n\n` +
+              `1단계: 열린 Chrome 창에서 구글 계정에 로그인하세요.\n` +
+              `2단계: 구글 로그인 완료 시 Perplexity 페이지로 자동 이동됩니다.\n` +
+              `3단계: "Continue with Google" 버튼이 자동으로 클릭됩니다.\n\n` +
+              `✅ 모든 과정 완료 후 창을 닫으면 세션이 영구 저장됩니다.`
+            : `🔑 [${platformKey.toUpperCase()} 사전 로그인 창 실행]\n\n` +
+              `크롤러 전용 브라우저 창이 열렸습니다.\n` +
+              `해당 창에서 로그인 후 창을 닫으시면 세션이 영구 보존되어, 이후 자동 실측 시 로그인 상태로 원활하게 동작합니다.`;
+          alert(msg);
           return;
         }
       } catch (e) {
@@ -894,6 +899,20 @@ pause\r
                       <div className="flex flex-col">
                         <span className="font-bold text-[#208B8B]">Perplexity 로그인</span>
                         <span className="text-[10px] text-gray-400 font-normal">가입/로그인 요구 차단 우회</span>
+                      </div>
+                    </button>
+
+                    {/* 🔴 Perplexity 전용: 구글 연동 로그인 (봇 차단 시) */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPreLogin('perplexity', 'google')}
+                      className="px-3 py-1.5 text-left hover:bg-red-50 flex items-center gap-2 text-xs font-semibold text-gray-700 hover:text-red-800 transition-colors border-l-[3px] border-red-400 ml-4 mr-2 mb-2 bg-red-50/50 rounded-r-md"
+                      title="Cloudflare 봇 차단 시 사용: 구글 로그인 → Perplexity 자동 연동"
+                    >
+                      <span className="text-sm font-bold text-red-400">↳</span>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-red-600 text-[11px]">우회용: 구글 연동 로그인</span>
+                        <span className="text-[9px] text-red-500 font-normal leading-tight">Perplexity 봇 차단 시에만 사용</span>
                       </div>
                     </button>
 

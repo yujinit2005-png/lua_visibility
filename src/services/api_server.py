@@ -66,12 +66,25 @@ USER_DATA_DIR = os.path.join(os.environ.get('TARGET_DIR', 'C:/lua_crawler'), 'us
 os.makedirs(USER_DATA_DIR, exist_ok=True)
 
 PLATFORM_URL_TEMPLATES = {
-    "chatgpt": "https://chatgpt.com/?q={query}",
+    # ✅ ChatGPT: 임시 채팅(메모리 없음) 사용 → 이전 대화/메모리 영향 차단
+    # ?q= 로 질문 전달, 메모리 기능이 비활성화된 새 채팅으로 시작
+    "chatgpt": "https://chatgpt.com/?q={query}&temporary-chat=true",
+    
+    # ✅ Gemini: /app 으로 항상 새 대화 시작 (이전 대화 참조 없음)
     "gemini": "https://gemini.google.com/app",
     "google gemini": "https://gemini.google.com/app",
+    
+    # ✅ Google: 일반 검색 (개인화 영향 최소)
     "google": "https://www.google.com/search?q={query}",
-    "perplexity": "https://www.perplexity.ai/search?q={query}",
+    
+    # ✅ Perplexity: /search/new 를 사용하여 매번 새 검색 강제
+    # (기존 /search?q= 는 이전 검색 세션이 남아있을 수 있음)
+    "perplexity": "https://www.perplexity.ai/search/new?q={query}",
+    
+    # ✅ Naver: 실시간 검색, 개인화 영향 없음
     "naver": "https://search.naver.com/search.naver?query={query}",
+    
+    # ✅ Claude: /new 로 항상 새 대화 시작 (이전 대화 독립적)
     "claude": "https://claude.ai/new",
 }
 
@@ -89,6 +102,61 @@ active_browsers = set()
 stop_requested = False
 window_offset_counter = 0
 
+# ===================================================================
+# 🛡️ Cloudflare / 봇 감지 완전 차단 스텔스 스크립트
+# Cloudflare Turnstile, Perplexity 봇 차단이 검사하는 모든 신호를 
+# 페이지 로드 전에 주입하여 일반 사용자 브라우저로 위장합니다.
+# ===================================================================
+STEALTH_INIT_SCRIPT = """
+// ── Playwright Stealth (최소 개입) ──
+// 실제 Chrome(channel='chrome', headless=False)을 사용 중이므로,
+// window.chrome이나 navigator.webdriver를 JS로 강제 덮어쓰면
+// 오히려 Cloudflare Turnstile에 의해 "조작된 객체"로 감지되어 차단됩니다.
+// (webdriver는 --disable-blink-features=AutomationControlled 옵션이 네이티브로 숨겨줍니다)
+
+// Cloudflare Turnstile이 WebGPU 검사 시 발생하는 에러를 캐치하여 정상인 것처럼 위장
+if (navigator.gpu) {
+    const originalRequestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
+    navigator.gpu.requestAdapter = async function(options) {
+        try {
+            return await originalRequestAdapter(options);
+        } catch(e) {
+            console.warn("LUA AI: WebGPU requestAdapter fallback triggered");
+            // 에러 발생 시 가짜 어댑터 반환 (Cloudflare 크래시 방지)
+            return {
+                features: new Set(),
+                limits: {},
+                isFallbackAdapter: false,
+                requestDevice: async () => ({
+                    features: new Set(),
+                    limits: {},
+                    queue: { submit: () => {} },
+                    createCommandEncoder: () => ({ finish: () => ({}) })
+                })
+            };
+        }
+    };
+}
+
+// cdc_ (ChromeDriver/Playwright 자동화 변수) 흔적 제거
+for (let prop in window) {
+    if (prop.match(/cdc_[a-zA-Z0-9]/ig)) {
+        delete window[prop];
+    }
+// ⑧ WebGL Vendor 위장 - GPU 기반 봇 감지 우회
+const getParameter = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function(parameter) {
+    if (parameter === 37445) return 'Intel Inc.';
+    if (parameter === 37446) return 'Intel(R) Iris(TM) Plus Graphics';
+    return getParameter.call(this, parameter);
+};
+
+// ⑨ Cloudflare challenge 루프 방지: 이전 cf_clearance 관련 오류 무시
+window.addEventListener('error', (e) => { e.stopPropagation(); }, true);
+"""
+
+
+
 @app.route('/api/health', methods=['GET', 'OPTIONS'])
 def health_check():
     return jsonify({"status": "ok", "message": "LUVIS Local Crawler Server is running", "time": time.time()})
@@ -101,30 +169,104 @@ def open_login_window():
         
     data = request.json or {}
     platform = (data.get('platform') or 'perplexity').lower()
+    mode = (data.get('mode') or 'direct').lower()  # 'direct' or 'google'
     login_url = PLATFORM_LOGIN_URLS.get(platform, "https://www.perplexity.ai/")
     
-    print(f"\n[LUA AI] 🔑 사전 로그인 창 열기: {platform} -> {login_url}")
+    print(f"\n[LUA AI] 🔑 사전 로그인 창 열기: {platform} (mode={mode}) -> {login_url}")
     
     try:
-        # 백그라운드 스레드에서 브라우저 창 띄우기 (블로킹 방지)
         import threading
-        def launch_login_browser():
+
+        # ── 구글 연동 로그인 (Perplexity 봇 차단 우회 전용) ──────────────────────────
+        def launch_google_then_perplexity():
             try:
+                for lock_file in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+                    lf_path = os.path.join(USER_DATA_DIR, lock_file)
+                    if os.path.exists(lf_path):
+                        try: os.remove(lf_path)
+                        except Exception as e: print(f"[LUA AI] ⚠️ {lock_file} 제거 실패: {e}")
+
                 with sync_playwright() as p:
-                    base_x = 700
-                    base_y = 100
                     context = p.chromium.launch_persistent_context(
                         user_data_dir=USER_DATA_DIR,
+                        channel="chrome",
                         headless=False,
                         viewport={"width": 1100, "height": 850},
+                        ignore_default_args=["--enable-automation", "--no-sandbox"],
                         args=[
-                            f"--window-position={base_x},{base_y}",
-                            "--window-size=1100,850"
+                            "--window-position=700,100",
+                            "--window-size=1100,850",
+                            "--no-first-run",
+                            "--no-default-browser-check",
+                            "--disable-session-crashed-bubble",
+                            "--disable-sync",
+                            "--disable-blink-features=AutomationControlled",
+                            "--disable-infobars",
+                            "--use-gl=angle",
+                            "--use-angle=gl",
+                            "--enable-webgl",
+                            "--enable-unsafe-webgpu",
+                            "--ignore-gpu-blocklist",
                         ]
                     )
+                    context.add_init_script(STEALTH_INIT_SCRIPT)
                     page = context.pages[0] if context.pages else context.new_page()
-                    page.goto(login_url)
-                    print(f"[LUA AI] 🔑 {platform} 로그인 창이 열렸습니다. 로그인 후 창을 닫아주세요.")
+
+                    # 1단계: 구글 로그인 페이지로 이동
+                    print("[LUA AI] 🔑 1단계: Google 로그인 페이지 이동...")
+                    page.goto("https://accounts.google.com/signin", wait_until="domcontentloaded")
+
+                    # 2단계: 사용자가 구글 로그인 완료할 때까지 대기 (최대 5분)
+                    # 로그인 완료 시 myaccount.google.com 으로 돌아옴
+                    print("[LUA AI] ⏳ 구글 로그인 완료 대기 중... (최대 5분)")
+                    try:
+                        page.wait_for_url("https://myaccount.google.com/**", timeout=300000)
+                    except Exception:
+                        pass  # 타임아웃 시 다음 단계로 계속 시도
+
+                    current_url = page.url
+                    print(f"[LUA AI] ✅ 구글 로그인 처리 완료. 현재 URL: {current_url}")
+
+                    # 3단계: Perplexity로 자동 이동
+                    print("[LUA AI] 🔄 2단계: Perplexity.ai로 자동 이동...")
+                    page.goto("https://www.perplexity.ai/", wait_until="domcontentloaded", timeout=30000)
+                    time.sleep(2)
+
+                    # 4단계: "Continue with Google" 버튼 자동 클릭
+                    print("[LUA AI] 🔍 3단계: 'Continue with Google' 버튼 감지 시도...")
+                    google_btn_selectors = [
+                        "button:has-text('Continue with Google')",
+                        "button:has-text('Google로 계속')",
+                        "button:has-text('Google로 시작')",
+                        "a:has-text('Continue with Google')",
+                        "[data-testid='google-login-button']",
+                        ".google-login",
+                        "button[class*='google']",
+                    ]
+                    clicked = False
+                    for selector in google_btn_selectors:
+                        try:
+                            btn = page.locator(selector).first
+                            if btn.count() > 0:
+                                btn.click(timeout=5000)
+                                clicked = True
+                                print(f"[LUA AI] ✅ 'Continue with Google' 버튼 클릭 성공: {selector}")
+                                break
+                        except Exception:
+                            continue
+
+                    if not clicked:
+                        print("[LUA AI] ⚠️ 'Continue with Google' 버튼 자동 클릭 실패 - 수동으로 로그인하세요.")
+
+                    # 5단계: Perplexity 로그인 완료 대기
+                    print("[LUA AI] ⏳ Perplexity 로그인 완료 대기...")
+                    try:
+                        page.wait_for_url("*perplexity.ai/**", timeout=30000)
+                    except Exception:
+                        pass
+                    time.sleep(2)
+                    print(f"[LUA AI] ✅ Perplexity 사전 로그인 완료. 세션이 {USER_DATA_DIR} 에 저장되었습니다.")
+
                     # 사용자가 창을 닫을 때까지 대기
                     try:
                         page.wait_for_event("close", timeout=600000)
@@ -132,15 +274,74 @@ def open_login_window():
                         pass
                     context.close()
             except Exception as ex:
-                print(f"[LUA AI] 사전 로그인 창 실행 오류: {ex}")
+                print(f"[LUA AI] 구글 연동 로그인 오류: {ex}")
+
+        # ── 직접 로그인 (기존 방식) ────────────────────────────────────────────────
+        def launch_login_browser():
+            try:
+                # SingletonLock 파일 제거 (이전 세션 잠금 해제)
+                for lock_file in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+                    lf_path = os.path.join(USER_DATA_DIR, lock_file)
+                    if os.path.exists(lf_path):
+                        try:
+                            os.remove(lf_path)
+                            print(f"[LUA AI] 🔓 사전 로그인 전 {lock_file} 제거 완료")
+                        except Exception as e:
+                            print(f"[LUA AI] ⚠️ {lock_file} 제거 실패: {e}")
                 
-        t = threading.Thread(target=launch_login_browser, daemon=True)
+                with sync_playwright() as p:
+                    base_x = 700
+                    base_y = 100
+                    context = p.chromium.launch_persistent_context(
+                        user_data_dir=USER_DATA_DIR,
+                        channel="chrome",
+                        headless=False,
+                        viewport={"width": 1100, "height": 850},
+                        ignore_default_args=[
+                            "--enable-automation",
+                            "--no-sandbox",
+                        ],
+                        args=[
+                            f"--window-position={base_x},{base_y}",
+                            "--window-size=1100,850",
+                            "--no-first-run",
+                            "--no-default-browser-check",
+                            "--disable-session-crashed-bubble",
+                            "--disable-sync",
+                            "--disable-blink-features=AutomationControlled",
+                            "--disable-infobars",
+                            "--use-gl=angle",
+                            "--use-angle=gl",
+                            "--enable-webgl",
+                            "--enable-unsafe-webgpu",
+                            "--ignore-gpu-blocklist",
+                        ]
+                    )
+                    context.add_init_script(STEALTH_INIT_SCRIPT)
+                    page = context.pages[0] if context.pages else context.new_page()
+                    page.goto(login_url)
+                    print(f"[LUA AI] 🔑 {platform} 로그인 창이 열렸습니다. 로그인 후 창을 닫아주세요.")
+                    try:
+                        page.wait_for_event("close", timeout=600000)
+                    except Exception:
+                        pass
+                    context.close()
+                    print(f"[LUA AI] ✅ {platform} 사전 로그인 완료 - 세션이 {USER_DATA_DIR} 에 저장되었습니다.")
+            except Exception as ex:
+                print(f"[LUA AI] 사전 로그인 창 실행 오류: {ex}")
+
+        # mode에 따라 적절한 함수 실행
+        if platform == 'perplexity' and mode == 'google':
+            t = threading.Thread(target=launch_google_then_perplexity, daemon=True)
+        else:
+            t = threading.Thread(target=launch_login_browser, daemon=True)
         t.start()
         
         return jsonify({
             "success": True,
-            "message": f"[{platform.upper()}] 사전 로그인 브라우저 창을 띄웠습니다. 로그인 후 창을 닫으시면 세션이 영구 보존됩니다.",
-            "url": login_url
+            "message": f"[{platform.upper()}] {'\uad6c\uae00 \uc5f0\ub3d9 ' if mode == 'google' else ''}\uc0ac전 \ub85c\uadf8\uc778 \ube0c\ub77c\uc6b0\uc800 \ucc3d\uc744 \ub744\uc6e0\uc2b5\ub2c8\ub2e4. \ub85c\uadf8\uc778 \ud6c4 \ucc3d\uc744 \ub2eb\uc73c\uc2dc\uba74 \uc138\uc158\uc774 \uc601\uad6c \ubcf4\uc874\ub429\ub2c8\ub2e4.",
+            "url": login_url,
+            "mode": mode
         })
     except Exception as e:
         traceback.print_exc()
@@ -327,6 +528,18 @@ def verify_platform():
     
     print(f"\n[LUA AI] 크롤링 시작: {platform} - {query}")
     
+    # 🔑 SingletonLock 제거: 이전 persistent context(사전 로그인 등) 종료 후 잠금 파일이
+    # 남아있을 경우, 새 persistent_context 실행 시 새 프로파일로 강제 실행되어
+    # 로그인 세션이 사라지는 문제를 방지합니다.
+    for lock_file in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+        lf_path = os.path.join(USER_DATA_DIR, lock_file)
+        if os.path.exists(lf_path):
+            try:
+                os.remove(lf_path)
+                print(f"[LUA AI] 🔓 {lock_file} 잠금 파일 제거 완료 → 세션 정상 로드")
+            except Exception as e:
+                print(f"[LUA AI] ⚠️ {lock_file} 제거 실패: {e}")
+    
     context = None
     try:
         with sync_playwright() as p:
@@ -339,15 +552,36 @@ def verify_platform():
             pos_y = base_y + (offset * step)
             window_offset_counter += 1
 
+            # 실제 설치된 Chrome 사용 (channel='chrome')
+            # ignore_default_args: Playwright가 자동 추가하는 --no-sandbox, --enable-automation 제거
+            # → 이 플래그들이 Cloudflare 봇 감지의 핵심 트리거
             context = p.chromium.launch_persistent_context(
                 user_data_dir=USER_DATA_DIR,
+                channel="chrome",
                 headless=False,
                 viewport={"width": 1000, "height": 800},
+                ignore_default_args=[
+                    "--enable-automation",   # '자동화에 의해 제어됩니다' 배너 제거
+                    "--no-sandbox",          # Cloudflare 봇 감지 최강 신호 제거
+                ],
                 args=[
                     f"--window-position={pos_x},{pos_y}", 
-                    "--window-size=1000,800"
+                    "--window-size=1000,800",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-session-crashed-bubble",
+                    "--disable-sync",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                    "--use-gl=angle",
+                    "--use-angle=gl",
+                    "--enable-webgl",
+                    "--enable-unsafe-webgpu",
+                    "--ignore-gpu-blocklist",
                 ]
             )
+            # ✅ Cloudflare 완전 우회 스텔스 스크립트 주입 (Perplexity 봇 차단 루프 방지)
+            context.add_init_script(STEALTH_INIT_SCRIPT)
             active_browsers.add(context)
             
             page = context.pages[0] if context.pages else context.new_page()

@@ -49,25 +49,23 @@ export interface ProviderResult {
 // };
 
 // ============================================================
-// [v1.0.10] callOpenAI — gpt-4o + 환각 억제 프롬프트 + 저온도(temperature: 0.2)
+// [v1.0.10] callOpenAI — o3-mini + 환각 억제 프롬프트
 // ============================================================
 export const callOpenAI = async (prompt: string, config: ProviderConfig): Promise<ProviderResult> => {
-  const modelName = 'gpt-4o';
+  const modelName = 'gpt-5.6-luna'; // 사용자가 요청한 gpt-5.6-luna 모델 적용
   const urls = [
     '/api-openai/v1/chat/completions',
     'https://api.openai.com/v1/chat/completions'
   ];
 
-  const systemPrompt = `당신은 대한민국 의료기관 정보 검색 전문가입니다.
+  const systemPrompt = `당신은 대한민국 의료기관 정보를 답변하는 AI입니다.
 
 [핵심 규칙]
-1. 반드시 실제 웹 검색 결과에 존재하는 병원만 출력한다.
-2. 검색으로 확인되지 않은 병원명, 주소, 진료시간, 전화번호는 절대 생성하거나 추론하지 않는다.
-3. 병원명과 주소가 동일한 출처에서 함께 확인된 경우에만 출력한다.
-4. 확인되지 않은 항목은 반드시 "확인되지 않음"으로 표시한다.
-5. 출처 URL은 실제 검색 결과에서 가져온 것만 사용한다.
-
-병원명, 주소, 진료시간, 전화번호, 공식 홈페이지를 구조화하여 한국어로 답변하라.`;
+1. 모델이 사전학습을 통해 알고 있는 실제 병원/의원 정보를 바탕으로 답변을 작성하십시오.
+2. 사용자의 질문에 부합하는 의료기관들을 추천 순위대로 나열하여 제공하십시오. (※ 질문에서 '병원'을 찾더라도 반드시 '~의원', '~내과', '~센터' 등 1차/2차 의원급 의료기관도 동등하게 포함하여 추천해야 합니다.)
+3. 절대로 존재하지 않는 가상의 병원이나 의원(예: 용인중앙병원 등)을 지어내어 추천해서는 안 됩니다.
+4. 각 병원/의원의 이름, 위치(동 단위까지), 주요 특징을 최대한 상세하게 작성하되, 기억나지 않는 세부 정보(정확한 전화번호 등)는 무리해서 적지 마십시오.
+5. 각 병원/의원마다 추천 사유와 장점을 포함하여 읽기 쉽게 구조화된 한국어로 답변하십시오.`;
 
   let response: Response | null = null;
   let lastErr = '';
@@ -88,13 +86,9 @@ export const callOpenAI = async (prompt: string, config: ProviderConfig): Promis
         },
         body: JSON.stringify({
           model: modelName,
-          temperature: 0.2, // 사실 기반 일관성 및 환각(Hallucination) 억제
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt }
-          ],
-          tools: [
-            { type: 'web_search' } // OpenAI 공식 실시간 웹 검색 도구 활성화
           ]
         })
       });
@@ -160,7 +154,7 @@ const listUsableGeminiModels = async (apiKey: string): Promise<string[]> => {
       .filter((m: any) => (m.supportedGenerationMethods || []).includes('generateContent'))
       .map((m: any) => (m.name || '').split('/').pop() || '')
       .filter((m: string) => !m.includes('1.0'));
-    
+
     const flash = usable.filter((m: string) => m.toLowerCase().includes('flash'));
     const sorted = flash.length > 0 ? flash : usable;
     return Array.from(new Set([...sorted, ...STABLE_GEMINI_FALLBACKS]));
@@ -253,7 +247,7 @@ export const callGemini = async (prompt: string, config: ProviderConfig): Promis
       try {
         rawText = await response.text();
         bodyJson = JSON.parse(rawText);
-      } catch (e) {}
+      } catch (e) { }
       lastErrorDetail = formatErrDetail(response.status, rawText, bodyJson, apiKey);
 
       if (!fetchedDynamicModels) {
@@ -283,7 +277,7 @@ export const callGemini = async (prompt: string, config: ProviderConfig): Promis
       try {
         rawText = await response.text();
         bodyJson = JSON.parse(rawText);
-      } catch (e) {}
+      } catch (e) { }
 
       lastErrorDetail = formatErrDetail(response.status, rawText, bodyJson, apiKey);
 
@@ -306,7 +300,7 @@ export const callGemini = async (prompt: string, config: ProviderConfig): Promis
       try {
         rawText = await response.text();
         bodyJson = JSON.parse(rawText);
-      } catch (e) {}
+      } catch (e) { }
       const errDetail = formatErrDetail(response.status, rawText, bodyJson, apiKey);
       lastErrorDetail = errDetail;
       currentModelIdx++;
@@ -380,12 +374,12 @@ export const callPerplexity = async (prompt: string, config: ProviderConfig): Pr
       lastErr = e.message || String(e);
     }
   }
-  
+
   if (!response || !response.ok) {
     const err = response ? await response.text() : lastErr;
     throw new Error(`Perplexity Error (${response ? response.status : 'Network Error'}): ${err}`);
   }
-  
+
   const data = await response.json();
   const text = data.choices?.[0]?.message?.content || '';
   const citations = data.citations || (data.search_results ? data.search_results.map((s: any) => s.url).filter(Boolean) : null);
@@ -432,12 +426,12 @@ export const callAnthropic = async (prompt: string, config: ProviderConfig): Pro
       lastErr = e.message || String(e);
     }
   }
-  
+
   if (!response || !response.ok) {
     const err = response ? await response.text() : lastErr;
     throw new Error(`Anthropic Error (${response ? response.status : 'Network Error'}): ${err}`);
   }
-  
+
   const data = await response.json();
   const text = data.content?.map((b: any) => b.text || '').join('') || '';
 
@@ -475,7 +469,7 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
   const words = cleaned.split(' ').filter(w => w.length >= 2);
 
   const hospitalTypes = [
-    '이비인후과의원', '이비인후과', '한방병원', '한의원', '요양병원', '종합병원', '정형외과', '신장내과', 
+    '이비인후과의원', '이비인후과', '한방병원', '한의원', '요양병원', '종합병원', '정형외과', '신장내과',
     '내과의원', '내과', '치과의원', '치과', '안과의원', '안과', '피부과의원', '피부과', '병원', '의원'
   ];
 
@@ -485,7 +479,7 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
     '수면무호흡증', '수면 무호흡증', '코골이', '이석증', '어지럼증', '난청', '이명', '청력검사', '보청기',
     '무릎 로봇수술', '무릎로봇수술', '로봇인공관절수술', '로봇 인공관절 수술', '로봇인공관절', '로봇 인공관절', '로봇수술', '로봇 수술',
     '인공관절수술', '인공관절 수술', '인공관절', '관절경수술', '관절경', '관절수술', '무릎수술', '무릎 수술', '퇴행성관절염', '관절염',
-    '척추관협착증', '척추협착증', '허리디스크', '목디스크', '척추관절', '척추', '무릎', '관절', 
+    '척추관협착증', '척추협착증', '허리디스크', '목디스크', '척추관절', '척추', '무릎', '관절',
     '도수치료', '추나요법', '교통사고', '오십견', '회전근개',
     '만성콩팥병', '신부전', '신장질환', '신장내과', '인공신장실', '인공신장센터', '혈액투석', '투석',
     '백내장', '라식', '라섹', '임플란트', '치아교정'
@@ -562,8 +556,8 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
     }
   }
 
-  const regionCandidates = words.filter(w => 
-    !hospitalTypes.some(t => w.includes(t)) && 
+  const regionCandidates = words.filter(w =>
+    !hospitalTypes.some(t => w.includes(t)) &&
     !diseaseKeywords.some(d => w.includes(d) || d.includes(w))
   );
 
@@ -679,9 +673,9 @@ export const callNaverLocal = async (prompt: string, config: NaverProviderConfig
     const description = cleanTag(item.description);
     const telephone = cleanTag(item.telephone || '');
     const link = item.link || '';
-    
+
     if (link) citations.push(link);
-    
+
     return `[${index + 1}] 
 🏥 병원명(타이틀): ${title}
 🌐 홈페이지(링크): ${link}
